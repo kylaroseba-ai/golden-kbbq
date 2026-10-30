@@ -7,6 +7,22 @@ All business rules live in Postgres functions (`supabase/migrations`). The same 
 - on **Supabase** in production, and
 - **in the browser** (PGlite) for the demo and in the tests. No server is needed to try it.
 
+## Where it lives
+
+| | |
+|---|---|
+| Code | https://github.com/kylaroseba-ai/golden-kbbq (private) |
+| Live demo | https://golden-kbbq.vercel.app (demo mode: data stays in each visitor's browser) |
+| Database | Supabase project `eudwvxwkdukmaozldopw` ("PROJECT CRMS FOR GOLDEN KOREAN BBQ"): all migrations applied, no demo data |
+
+**To go live on Supabase:**
+1. Create the staff/device logins in Supabase Auth.
+2. Add the Candon setup data (§13.4).
+3. In Vercel → Settings → Environment Variables, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+4. Redeploy.
+
+**Auto-deploy on every push:** in Vercel → Account Settings → Authentication, connect GitHub. Then run `vercel git connect`.
+
 ## Try the demo
 
 ```bash
