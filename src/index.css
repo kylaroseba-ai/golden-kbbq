@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@import "@fontsource/cinzel/600.css";
+@import "@fontsource/cinzel/700.css";
+@import "@fontsource-variable/manrope";
+
+/* Brand (§9.5): warm black, gold primary, silver/stone secondary. Self-hosted fonts so the PWA works offline. */
+@theme {
+  --color-gold-200: #f3e2b0;
+  --color-gold-300: #e6c97e;
+  --color-gold-400: #d4b062;
+  --color-gold-500: #b8964a;
+  --color-gold-600: #8f7234;
+  --color-gold-700: #5e4b24;
+  --color-ivory: #f6f0e2;
+  --color-ivory-200: #e9dfc8;
+  --color-silver: #a39a88;          /* muted text */
+  --color-charcoal-950: #0c0b09;    /* page */
+  --color-charcoal-900: #16140f;    /* cards */
+  --color-charcoal-800: #1e1b15;    /* inputs, raised */
+  --color-charcoal-700: #2a2620;    /* borders */
+  --color-charcoal-600: #3a352c;
+  --color-ok: #7fd19b;
+  --color-ok-bg: #14291b;
+  --color-bad: #f08a7a;
+  --color-bad-bg: #3a1714;
+  --color-warn: #f0a860;
+  --color-warn-bg: #3a2614;
+  --color-info: #8fb4ff;
+  --color-info-bg: #16243a;
+  --font-sans: "Manrope Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Cinzel", ui-serif, Georgia, serif;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--color-charcoal-950); color: #ece6da; -webkit-tap-highlight-color: transparent; font-feature-settings: "tnum" 1; }
+button, input, select, textarea { font: inherit; }
+input, select, textarea { color-scheme: dark; }
+::selection { background: var(--color-gold-600); color: #fff; }
+* { scrollbar-color: var(--color-charcoal-600) transparent; }
+
+.label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-silver); font-weight: 600; }
+
+/* The logo is gold on pure black: "lighten" drops the black box on any dark background. */
+.logo { mix-blend-mode: lighten; }
+
+@keyframes flash { 0%, 100% { box-shadow: 0 0 0 0 rgba(212, 176, 98, 0); } 50% { box-shadow: 0 0 0 6px rgba(212, 176, 98, .65); } }
+.flash { animation: flash 1s ease-in-out 5; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.live-dot { animation: pulse-dot 1.6s ease-in-out infinite; }
+
+/* 80 mm thermal receipt (§6.7) */
+@media print {
+  body { background: #fff; color: #000; }
+  .no-print { display: none !important; }
+  .receipt { width: 72mm; font: 11px/1.35 ui-monospace, Menlo, monospace; color: #000; }
+  @page { size: 80mm auto; margin: 4mm; }
+}

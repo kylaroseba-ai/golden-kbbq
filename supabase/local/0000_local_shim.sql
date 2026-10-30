@@ -1,0 +1,5 @@
+-- Local demo backend only (PGlite in the browser / tests). Supabase provides these itself.
+create schema if not exists auth;
+create or replace function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
