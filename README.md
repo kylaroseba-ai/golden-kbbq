@@ -13,7 +13,7 @@ All business rules live in Postgres functions (`supabase/migrations`). The same 
 |---|---|
 | Code | https://github.com/kylaroseba-ai/golden-kbbq (private) |
 | Live demo | https://golden-kbbq.vercel.app (demo mode: data stays in each visitor's browser) |
-| Database | Supabase project `eudwvxwkdukmaozldopw` ("PROJECT CRMS FOR GOLDEN KOREAN BBQ"): all migrations applied, no demo data |
+| Database | Supabase project `uhtakdvizeoquyvovusn` ("Golden Korean BBQ", Singapore · ap-southeast-1): all migrations applied, no demo data |
 
 **To go live on Supabase:**
 1. Create the staff/device logins in Supabase Auth.
