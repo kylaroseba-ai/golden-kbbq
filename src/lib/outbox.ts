@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import { backendKind, getBackend, isOfflineError, RpcError } from './backend'
+import { getBackend, isOfflineError, RpcError } from './backend'
 
 // Offline outbox (§10): actions are kept in IndexedDB with their idempotency key and posted in order.
 export interface OutboxItem {
@@ -15,19 +15,11 @@ export interface OutboxItem {
   branch_id?: string
 }
 
-// One outbox per device. In the demo every browser tab is its own device, so each tab gets its own.
-function deviceDbName() {
-  if (backendKind() !== 'local') return 'gkb-device'
-  let id = sessionStorage.getItem('gkb-tab-id')
-  if (!id) { id = crypto.randomUUID().slice(0, 8); sessionStorage.setItem('gkb-tab-id', id) }
-  return `gkb-device-${id}`
-}
-
 class LocalDb extends Dexie {
   outbox!: Table<OutboxItem, number>
   cache!: Table<{ key: string; value: unknown; at: string }, string>
   constructor() {
-    super(deviceDbName())
+    super('gkb-device')
     this.version(1).stores({ outbox: '++id, status, session_id', cache: 'key' })
   }
 }

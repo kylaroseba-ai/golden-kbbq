@@ -198,7 +198,7 @@ function RunningBill({ s }: { s: any }) {
   if (!lines.length) return null
   return (
     <div className="mt-4 pt-4 border-t border-charcoal-700 text-sm">
-      {lines.map((l: any) => <div key={l.id} className="flex justify-between py-0.5 text-silver"><span>{Number(l.qty)} × {l.name}</span><span>{peso(l.net_amount)}</span></div>)}
+      {lines.map((l: any) => <div key={l.id} className="flex justify-between py-0.5 text-silver"><span>{Number(l.qty)} × {l.name}{l.choice_name ? ` — ${l.choice_name}` : ''}</span><span>{peso(l.net_amount)}</span></div>)}
       <div className="flex justify-between mt-2 text-base font-bold"><span>Total</span><span className="font-display">{peso(lines.reduce((a: number, l: any) => a + Number(l.net_amount), 0))}</span></div>
     </div>
   )
@@ -210,11 +210,15 @@ function OrderPanel({ s, compact }: { s: any; compact?: boolean }) {
   const toast = useToast()
   const askPin = useManagerPin()
   const boot = useRpc<any>('get_bootstrap', { p_branch: auth.branchId }, { cache: true, staleTime: 60_000 })
-  const [cart, setCart] = useState<{ menu_item_id: string; qty: number; discount_type_id: string | null }[]>([])
+  const [cart, setCart] = useState<{ menu_item_id: string; qty: number; discount_type_id: string | null; choice_item_id?: string | null }[]>([])
   const [wasteFor, setWasteFor] = useState(false)
   const menu = (boot.data?.menu_items ?? []).filter((m: any) => m.is_active && m.item_type !== 'unli_package')
   const cats: any[] = boot.data?.menu_categories ?? []
   const discounts: any[] = boot.data?.discount_types ?? []
+  // Sets and "500 g meat" use the meat the guest picks (it is taken off stock and shown on the kitchen ticket)
+  const meats: any[] = (boot.data?.items ?? []).filter((i: any) => i.is_meat && i.is_active)
+  const needsChoice = (id: string) => menu.find((m: any) => m.id === id)?.choice_grams != null
+  const missingChoice = cart.some((c) => needsChoice(c.menu_item_id) && !c.choice_item_id)
   const settings = boot.data?.settings ?? {}
   const hour = new Date(deviceNow().getTime() + 8 * 3600_000).toISOString().slice(11, 16)
   const lunchOpen = hour >= settings.lunch_from && hour < settings.lunch_to
@@ -249,7 +253,7 @@ function OrderPanel({ s, compact }: { s: any; compact?: boolean }) {
                 {list.map((m: any) => {
                   const blocked = m.item_type === 'set_meal' && !lunchOpen
                   return (
-                    <button key={m.id} onClick={() => setCart([...cart, { menu_item_id: m.id, qty: 1, discount_type_id: null }])}
+                    <button key={m.id} onClick={() => setCart([...cart, { menu_item_id: m.id, qty: 1, discount_type_id: null, choice_item_id: m.choice_grams != null ? null : undefined }])}
                       className={`rounded-xl border p-3 text-left min-h-16 ${blocked ? 'border-charcoal-700 opacity-40' : 'border-charcoal-600 bg-charcoal-800 hover:border-gold-400'}`}>
                       <div className="font-semibold leading-tight">{m.name}</div>
                       <div className="text-sm text-silver">{peso(m.price)}{blocked ? ` · ${settings.lunch_from}–${settings.lunch_to} only` : ''}</div>
@@ -270,6 +274,12 @@ function OrderPanel({ s, compact }: { s: any; compact?: boolean }) {
             return (
               <div key={i} className="flex flex-wrap items-center gap-2 py-2 border-b border-charcoal-700">
                 <span className="flex-1">{m?.name}</span>
+                {m?.choice_grams != null && (
+                  <select className={`${inputCls} !w-auto !min-h-10 ${c.choice_item_id ? '' : '!border-warn'}`} value={c.choice_item_id ?? ''}
+                    onChange={(e) => setCart(cart.map((x, j) => j === i ? { ...x, choice_item_id: e.target.value || null } : x))}>
+                    <option value="">Pick meat ({Number(m.choice_grams)} g)</option>
+                    {meats.map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                  </select>)}
                 <input type="number" min={1} className={`${inputCls} !w-16 !min-h-10`} value={c.qty}
                   onChange={(e) => setCart(cart.map((x, j) => j === i ? { ...x, qty: Math.max(1, Number(e.target.value)) } : x))} />
                 {m?.item_type === 'set_meal' && (
@@ -283,13 +293,13 @@ function OrderPanel({ s, compact }: { s: any; compact?: boolean }) {
               </div>
             )
           })}
-          <Button variant="gold" className="w-full mt-3" disabled={!cart.length || s.status !== 'open'} onClick={() => submit()}>Send order</Button>
+          <Button variant="gold" className="w-full mt-3" disabled={!cart.length || s.status !== 'open' || missingChoice} onClick={() => submit()}>{missingChoice ? 'Pick the meat first' : 'Send order'}</Button>
         </Card>
         <Card>
           <h3 className="font-bold mb-2">On this table</h3>
           {(s.lines ?? []).map((l: any) => (
             <div key={l.id} className={`flex items-center gap-2 py-1.5 text-sm border-b border-charcoal-800 ${l.status === 'voided' ? 'line-through text-silver' : ''}`}>
-              <span className="flex-1">{Number(l.qty)}× {l.name}{l.discount_name && l.discount_name !== 'Regular' ? ` (${l.discount_name})` : ''}{l.served ? ' ✓' : ''}</span>
+              <span className="flex-1">{Number(l.qty)}× {l.name}{l.choice_name ? ` — ${l.choice_name}` : ''}{l.discount_name && l.discount_name !== 'Regular' ? ` (${l.discount_name})` : ''}{l.served ? ' ✓' : ''}</span>
               <span>{peso(l.net_amount)}</span>
               {l.status === 'active' && s.status !== 'closed' && <button className="text-xs text-red-300 underline" onClick={async () => {
                 const reason = prompt('Reason for void?')

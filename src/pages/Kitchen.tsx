@@ -29,7 +29,13 @@ export function Kitchen() {
   const [started, setStarted] = useState(false)
   const [volume, setVolume] = useState(Number(localStorage.getItem('gkb-volume') ?? 0.6))
   const wake = useWakeLock(started)
-  const q = useRpc<any>('get_kitchen_queue', { p_branch: auth.branchId }, { refetchInterval: 3000, cache: true })
+  // Dispatch prepares and plates meat and side dishes; the kitchen cooks. Each has its own screen (v0.6).
+  const defaultStation = auth.who.mode === 'device' && auth.who.device.kind === 'dispatch' ? 'dispatch'
+    : auth.who.mode === 'device' && auth.who.device.kind === 'kitchen' ? 'kitchen'
+    : auth.roles.includes('dispatch') && !auth.roles.includes('kitchen') ? 'dispatch' : 'kitchen'
+  const [station, setStationState] = useState<'kitchen' | 'dispatch'>((localStorage.getItem('gkb-station') as 'kitchen' | 'dispatch') ?? defaultStation)
+  const setStation = (v: 'kitchen' | 'dispatch') => { setStationState(v); localStorage.setItem('gkb-station', v) }
+  const q = useRpc<any>('get_station_queue', { p_branch: auth.branchId, p_station: station }, { refetchInterval: 3000, cache: true })
   const boot = useRpc<any>('get_bootstrap', { p_branch: auth.branchId }, { cache: true, staleTime: 60_000 })
   const seen = useRef<Set<string> | null>(null)
   const [fresh, setFresh] = useState<Set<string>>(new Set())
@@ -62,6 +68,7 @@ export function Kitchen() {
     )
   }
 
+  const open = (tk: any) => (tk.lines ?? []).filter((l: any) => !l.voided && !l.served_at).map((l: any) => l.id)
   const serve = (ticketId: string, lineIds?: string[]) =>
     mutate('mark_ticket_served', { p_token: auth.token, p_ticket_id: ticketId, p_line_ids: lineIds ?? null },
       { queueable: true, label: 'Mark served' }).then(() => q.refetch()).catch((e) => toast(e.message, 'error'))
@@ -69,14 +76,18 @@ export function Kitchen() {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <h1 className="font-display text-2xl font-bold">Kitchen · dispatch <span className="text-silver text-lg">({tickets.length} open)</span></h1>
+        <h1 className="font-display text-2xl font-bold">{station === 'dispatch' ? 'Dispatch' : 'Kitchen'} <span className="text-silver text-lg">({tickets.length} open)</span></h1>
+        <div className="flex rounded-xl bg-charcoal-800 p-1">
+          {(['dispatch', 'kitchen'] as const).map((v) => (
+            <button key={v} onClick={() => setStation(v)} className={`min-h-10 px-4 rounded-lg text-sm capitalize ${station === v ? 'bg-gold-400 text-charcoal-950 font-semibold' : 'text-silver'}`}>{v}</button>))}
+        </div>
         <span className="text-sm text-silver">{wake ? '☀ Screen stays on' : 'Wake lock unavailable'}</span>
         <label className="ml-auto flex items-center gap-2 text-sm">Volume
           <input type="range" min={0.05} max={1} step={0.05} value={volume} onChange={(e) => { setVolume(Number(e.target.value)); localStorage.setItem('gkb-volume', e.target.value) }} />
         </label>
         <Button onClick={() => chime(volume)}>Test chime</Button>
       </div>
-      {tickets.length === 0 && <Empty>No open tickets. New orders and refill rounds appear here automatically.</Empty>}
+      {tickets.length === 0 && <Empty>{station === 'dispatch' ? 'Nothing to plate. Meat and side-dish refills appear here automatically.' : 'Nothing to cook. Cooked items appear here automatically.'}</Empty>}
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {tickets.map((tk) => {
           const mins = (deviceNow().getTime() - new Date(tk.created_at).getTime()) / 60000
@@ -98,7 +109,7 @@ export function Kitchen() {
                   </li>
                 ))}
               </ul>
-              <Button variant="gold" big className="w-full" onClick={() => serve(tk.id)}>✓ {t('served')}</Button>
+              <Button variant="gold" big className="w-full" onClick={() => serve(tk.id, open(tk))}>✓ {t('served')}</Button>
             </div>
           )
         })}

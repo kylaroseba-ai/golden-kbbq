@@ -47,7 +47,7 @@ export function ReservationsPage() {
           <div className="flex-1 min-w-48"><div className="font-semibold text-gold-200">New booking · waiting for confirmation</div>
             <div className="text-sm">{pending[0].customer_name} · {pending[0].party_size} pax · {dateTime(pending[0].reserved_for)}{pending[0].notes ? ` · ${pending[0].notes}` : ''}</div></div>
           <a href={`tel:${pending[0].phone}`} className="min-h-11 px-4 rounded-xl bg-charcoal-800 border border-charcoal-700 grid place-items-center text-sm font-medium">Call guest</a>
-          <Button variant="gold" onClick={() => act('confirm_reservation', { p_reservation_id: pending[0].id })}>Confirm &amp; send SMS{pending[0].email ? ' + email' : ''}</Button>
+          <Button variant="gold" disabled={pending[0].deposit_status === 'pending'} onClick={() => act('confirm_reservation', { p_reservation_id: pending[0].id })}>Confirm &amp; send SMS{pending[0].email ? ' + email' : ''}</Button>
         </div>
       )}
       <PageHeader eyebrow="Service" title="Reservations">
@@ -64,12 +64,16 @@ export function ReservationsPage() {
             <div className="flex-1 min-w-52">
               <div className="font-semibold">{r.customer_name}</div>
               <div className="text-sm text-silver">{r.party_size} pax{r.table_label ? ` · T${r.table_label}` : ''} · {r.package_interest.replace(/_/g, ' ')} · {r.code}{r.notes ? ` · “${r.notes}”` : ''}</div>
+              {Number(r.deposit_amount) > 0 && <div className="text-xs mt-1"><Pill tone={r.deposit_status === 'pending' ? 'warn' : r.deposit_status === 'forfeited' ? 'bad' : 'ok'}>
+                ₱{Number(r.deposit_amount).toLocaleString()} fee · GCash {r.deposit_ref ?? '—'} · {r.deposit_status === 'pending' ? 'not checked yet' : r.deposit_status}</Pill></div>}
               {r.messages?.length > 0 && <div className="text-xs text-silver mt-0.5">{r.messages.map((m: any) => `${m.channel.toUpperCase()} ${m.event}: ${m.status}`).join(' · ')}</div>}
             </div>
             <Pill tone={r.status}>{r.status === 'no_show' ? 'No-show' : r.status[0].toUpperCase() + r.status.slice(1)}</Pill>
             <div className="flex flex-wrap gap-2">
               {r.status === 'pending' && <><Button onClick={() => { const reason = prompt('Reason (e.g. fully booked — suggest another time)'); if (reason) act('decline_reservation', { p_reservation_id: r.id, p_reason: reason }) }}>Decline</Button>
-                <Button variant="gold" onClick={() => act('confirm_reservation', { p_reservation_id: r.id })}>Confirm</Button></>}
+                {r.deposit_status === 'pending' && <Button onClick={() => confirm(`Did you receive ₱${Number(r.deposit_amount).toLocaleString()} by GCash, ref ${r.deposit_ref}?`) &&
+                  mutate('verify_reservation_deposit', { p_reservation_id: r.id, p_received: true }).then(() => list.refetch()).catch((e) => toast(e.message, 'error'))}>Fee received</Button>}
+                <Button variant="gold" disabled={r.deposit_status === 'pending'} onClick={() => act('confirm_reservation', { p_reservation_id: r.id })}>Confirm</Button></>}
               {r.status === 'confirmed' && <><Button onClick={() => act('mark_no_show', { p_reservation_id: r.id })}>{r.suggest_no_show ? 'No-show?' : 'No-show'}</Button>
                 <Button variant="gold" onClick={() => nav('/floor', { state: { reservation: r.id } })}>Seat</Button>
                 <Button variant="ghost" onClick={() => { const reason = prompt('Cancellation note'); if (reason !== null) act('decline_reservation', { p_reservation_id: r.id, p_reason: reason, p_status: 'cancelled' }) }}>Cancel</Button></>}
@@ -113,7 +117,7 @@ export function BookPage() {
   const [party, setParty] = useState(4)
   const [interest, setInterest] = useState('unli_pork')
   const [slot, setSlot] = useState('')
-  const [form, setForm] = useState({ customer_name: '', phone: '', email: '', notes: '', consent_privacy: false })
+  const [form, setForm] = useState({ customer_name: '', phone: '', email: '', notes: '', consent_privacy: false, deposit_ref: '' })
   const [avail, setAvail] = useState<any>(null)
   const [done, setDone] = useState<any>(null)
   const [err, setErr] = useState('')
@@ -137,13 +141,12 @@ export function BookPage() {
   const submit = async () => {
     setErr('')
     try {
-      const b = await getBackend()
       const booking = { ...form, date, time: slot, party_size: party, package_interest: interest }
-      // Production: the Edge Function verifies Cloudflare Turnstile, then creates the booking.
-      const r = b.kind === 'supabase'
-        ? await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-booking`, { method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ branch_code: branchCode, booking, turnstile_token: (window as any).turnstileToken }) }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.message); return j })
-        : await b.rpc('create_public_reservation', { p_branch_code: branchCode, p_booking: booking })
+      // The Edge Function verifies Cloudflare Turnstile, then creates the booking.
+      const r = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-booking`, { method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? '' },
+        body: JSON.stringify({ branch_code: branchCode, booking, turnstile_token: (window as any).turnstileToken }) })
+        .then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.message); return j })
       setDone(r)
     } catch (e) { setErr((e as Error).message) }
   }
@@ -153,6 +156,8 @@ export function BookPage() {
   const PKG = [['unli_pork', 'Unli Pork'], ['unli_beef_pork', 'Unli Beef + Pork'], ['lunch', 'Lunch'], ['not_sure', 'Not sure']]
   const when = new Date(`${date}T12:00:00+08:00`).toLocaleDateString('en-PH', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'Asia/Manila' })
   const slotLabel = avail?.slots?.find((x: any) => x.time === slot)?.label
+  const fee = avail?.reservation_fee
+  const needsFee = !!fee && party >= Number(fee.min_party)
   return (
     <div className="min-h-full bg-black text-[#ece6da]">
       <header className="border-b border-charcoal-800">
@@ -190,7 +195,8 @@ export function BookPage() {
               <label className="block"><span className="text-sm text-silver">Date</span><input type="date" className={ic} value={date} min={manilaDate()} onChange={(e) => setDate(e.target.value)} /></label>
               <label className="block"><span className="text-sm text-silver">Guests</span><input type="number" min={1} max={avail?.max_online_party ?? 16} className={ic} value={party} onChange={(e) => setParty(Number(e.target.value))} /></label>
             </div>
-            {party > Number(avail?.max_online_party ?? 16) && <p className="text-sm text-bad mb-3">For groups over {avail?.max_online_party}, please call {avail?.branch?.phone}.</p>}
+            {party > Number(avail?.max_online_party ?? 50) && <p className="text-sm text-bad mb-3">For groups over {avail?.max_online_party}, please call {avail?.branch?.phone}.</p>}
+            {avail?.closed && <p className="rounded-xl bg-warn-bg text-warn p-3 mb-3 text-sm">We are closed on this day. Please pick another date.</p>}
             <div className="grid grid-cols-2 gap-2 mb-4">
               {PKG.map(([v, l]) => <button key={v} onClick={() => setInterest(v)} className={`min-h-11 rounded-xl border text-sm ${interest === v ? 'border-gold-400 bg-gold-400/10 text-gold-200 font-semibold' : 'border-charcoal-700 bg-charcoal-800'}`}>{l}</button>)}
             </div>
@@ -208,6 +214,13 @@ export function BookPage() {
                 <label className="block"><span className="text-sm text-silver">Email (optional)</span><input className={ic} type="email" autoComplete="email" placeholder="you@email.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
               </div>
               <label className="block"><span className="text-sm text-silver">Notes (birthday, high chair, PWD access)</span><input className={ic} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label>
+              {fee && party >= Number(fee.min_party) && (
+                <div className="rounded-xl border border-gold-600/60 bg-gold-400/5 p-3 text-sm">
+                  <p className="font-semibold text-gold-200 mb-1">Reservation fee for groups of {fee.min_party}+: ₱{Number(fee.amount).toLocaleString()}</p>
+                  <p className="text-silver mb-2">Send it by GCash{fee.gcash_number ? <> to <b className="text-[#ece6da]">{fee.gcash_number}</b>{fee.gcash_name ? ` (${fee.gcash_name})` : ''}</> : ''}, then enter the reference number.
+                    It is deducted from your bill. Non-refundable if you cancel or don’t show up.</p>
+                  <input className={ic} placeholder="GCash reference no." value={form.deposit_ref} onChange={(e) => setForm({ ...form, deposit_ref: e.target.value })} />
+                </div>)}
               <label className="flex gap-3 items-start text-sm text-silver">
                 <input type="checkbox" className="mt-1 size-5 accent-[#d4b062]" checked={form.consent_privacy} onChange={(e) => setForm({ ...form, consent_privacy: e.target.checked })} />
                 <span>I agree that Golden Korean BBQ may use my name and contact details only to handle this reservation (Data Privacy Act, RA 10173).</span>
@@ -216,7 +229,7 @@ export function BookPage() {
             {siteKey && <div className="cf-turnstile mb-3" data-sitekey={siteKey} data-callback="onTurnstile" data-theme="dark" />}
             {err && <p className="rounded-xl bg-bad-bg text-bad p-3 mb-3 text-sm">{err}</p>}
             <button className="w-full min-h-14 rounded-xl bg-gold-400 text-charcoal-950 text-base font-bold disabled:opacity-40 hover:bg-gold-300 transition"
-              disabled={!slot || !form.customer_name || !form.phone || !form.consent_privacy} onClick={submit}>Book now</button>
+              disabled={!slot || !form.customer_name || !form.phone || !form.consent_privacy || (needsFee && !form.deposit_ref.trim())} onClick={submit}>Book now</button>
             <p className="text-xs text-silver text-center mt-3">You'll get a confirmation by SMS once the restaurant confirms, and a reminder before your booking.</p>
           </div>
         )}

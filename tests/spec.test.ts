@@ -140,7 +140,7 @@ describe('§6 POS', () => {
     expect(r2.round_no).toBe(2)
     expect(await onHand('Samgyupsal')).toBe(before[0] - 160)
     expect(await onHand('Daepae')).toBe(before[1] - 80)
-    expect(await onHand('Kimchi (served side dish)')).toBe(before[2] - 80)
+    expect(await onHand('Kimchi (served side dish)')).toBe(before[2] - 50)   // side dishes 50 g per plate (v0.6)
     // Round 3 blocked until Round 2 is served
     await expectCode(refill(server, s, [{ item_id: samg, plates: 1 }]), 'PREV_NOT_SERVED')
     await t.rpc(ids.kitchenTab.auth, 'mark_ticket_served', { p_token: kitchen, p_ticket_id: r2.ticket_id })
@@ -197,9 +197,11 @@ describe('§6 POS', () => {
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
   })
 
-  it('6.1 time windows: no lunch sets from 3 PM, no unli before 3 PM; manager override is recorded', async () => {
+  it('6.1 time windows: unli from opening until last seating, no lunch sets from 3 PM; manager override is recorded', async () => {
     const server = await t.pin(ids.phone1, ids.server1)
-    await expectCode(openTable(server, '5', '2026-12-05 14:30'), 'TIME_WINDOW')
+    await expectCode(openTable(server, '5', '2026-12-05 10:30'), 'TIME_WINDOW')       // before opening
+    await openTable(server, '4', '2026-12-05 11:30')                                    // unli at lunchtime is fine now (v0.6)
+    await expectCode(openTable(server, '3', '2026-12-05 20:45'), 'TIME_WINDOW')       // Candon last unli seating 8:30 PM
     const lunch = await openTable(server, '6', '2026-12-05 14:00', null as unknown as string, [])
     await t.rpc(ids.phone1.auth, 'post_order_lines', { p_client_uuid: uuid(), p_token: server, p_session_id: lunch, p_lines: [{ menu_item_id: ids.bulgogiBowl, qty: 1 }] })
     await t.clock(manila('2026-12-05 15:00'))
@@ -220,7 +222,7 @@ describe('§6 POS', () => {
       [{ discount_type_id: ids.regular, pax_count: 2 }, { discount_type_id: ids.senior, pax_count: 1 }, { discount_type_id: ids.kids, pax_count: 1 }])
     const lines = (await t.rpc(ids.phone1.auth, 'get_session', { p_session_id: s })).lines
     expect(Number(lines.find((l: any) => l.discount_name === 'Senior Citizen').net_amount)).toBe(356.43)
-    expect(Number(lines.find((l: any) => l.discount_name === 'Kids').net_amount)).toBe(249.5)
+    expect(Number(lines.find((l: any) => l.discount_name === 'Kids 3 ft to under 4 ft').net_amount)).toBe(249.5)
     const bill = await t.rpc(ids.phone1.auth, 'preview_bill', { p_session_id: s })
     expect(Number(bill.total)).toBe(998 + 356.43 + 249.5)
     expect(Number(bill.vat_exempt_sales)).toBe(356.43)
@@ -228,7 +230,8 @@ describe('§6 POS', () => {
     await expectCode(openTable(server, '9', '2026-12-05 18:00', ids.unliPork, [{ discount_type_id: ids.managerDiscount, pax_count: 1 }]), 'NEEDS_MANAGER')
   })
 
-  it('6.7 invoices: booklet fallback, gap-free numbering only on the registered terminal, voids keep numbers, Z = sum', async () => {
+  it('6.7 BIR mode (if the POS is ever registered): booklet fallback, gap-free numbering on the registered terminal, voids keep numbers, Z = sum', async () => {
+    await t.db.query(`update branches set settings = settings || '{"receipt_mode":"bir"}' where id = $1`, [ids.candon])
     const server = await t.pin(ids.phone1, ids.server1)
     const cashier = await t.pin(ids.counter, ids.cashier)
     const settle = (s: string, opts: Record<string, unknown> = {}, device = ids.counter, token = cashier) =>
@@ -270,7 +273,7 @@ describe('§6 POS', () => {
     const cashier = await t.pin(ids.counter, ids.cashier)
     const s = await openTable(server, '15', '2026-12-05 18:00', ids.unliPork, [{ discount_type_id: ids.senior, pax_count: 1 }])
     const args = { p_client_uuid: uuid(), p_token: cashier, p_session_id: s, p_terminal_id: ids.terminal, p_manual_booklet_no: 'BK-9',
-      p_payments: [{ method: 'gcash', amount: 356.43, reference_no: 'GC123' }] }
+      p_payments: [{ method: 'gcash', amount: 427.86, reference_no: 'GC123' }] }   // one guest → solo price ₱599, SC/PWD ₱427.86
     await expectCode(t.rpc(ids.counter.auth, 'settle_bill', args), 'SC_PWD_DETAILS')
     const r = await t.rpc(ids.counter.auth, 'settle_bill', { ...args, p_client_uuid: uuid(), p_sc_pwd: [{ kind: 'sc', id_number: 'SC-123', full_name: 'Juan Dela Cruz' }] })
     const inv = await t.rpc(ids.counter.auth, 'get_invoice', { p_invoice_id: r.invoice_id })
@@ -353,15 +356,16 @@ describe('§7 reservations', () => {
     expect(msgs.map((m) => m.event)).toEqual(['confirmed', 'reminder'])
     expect(new Date(msgs[1].send_after).toISOString()).toBe(manila('2026-12-05 16:00'))
     expect(msgs[0].to_address).toBe('639171234567')
-    // capacity: 70 % of 80 = 56 online seats; a 2-hour booking holds seats in every slot it overlaps.
-    await book('18:00', 16, '09170000011'); await book('18:30', 16, '09170000012'); await book('19:30', 16, '09170000013')
-    // at 19:30 the 18:00, 18:30, 19:00 and 19:30 bookings are all seated: 54 of 56
-    await expectCode(book('19:30', 6, '09170000014'), 'FULLY_BOOKED')
-    await book('19:30', 2, '09170000017')
-    // lead time
-    await expectCode(book('13:00', 2, '09170000015'), 'SLOT_UNAVAILABLE')
+    // capacity: 50 % of 108 = 54 online seats; a 2-hour booking holds seats in every slot it overlaps.
+    await book('18:00', 9, '09170000011'); await book('18:30', 9, '09170000012'); await book('19:30', 9, '09170000013')
+    await book('18:00', 9, '09170000021'); await book('18:30', 9, '09170000022')
+    // at 19:30 the 18:00, 18:30, 19:00 and 19:30 bookings are all seated: 51 of 54
+    await expectCode(book('19:30', 4, '09170000014'), 'FULLY_BOOKED')
+    await book('19:30', 3, '09170000017')
+    // lead time: 3 hours
+    await expectCode(book('14:30', 2, '09170000015'), 'SLOT_UNAVAILABLE')
     await expectCode(t.rpc(null, 'create_public_reservation', { p_branch_code: 'CANDON', p_booking: {
-      date: '2026-12-05', time: '19:00', party_size: 20, customer_name: 'Big group', phone: '09170000016', consent_privacy: true } }), 'PARTY_TOO_LARGE')
+      date: '2026-12-06', time: '19:00', party_size: 51, customer_name: 'Big group', phone: '09170000016', consent_privacy: true } }), 'PARTY_TOO_LARGE')
   })
 
   it('no reminder when confirmed less than 3 h 30 min before', async () => {

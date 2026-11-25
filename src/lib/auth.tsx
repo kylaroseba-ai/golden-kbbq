@@ -1,30 +1,39 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { backendKind, getBackend, isOfflineError, RpcError } from './backend'
+import { getBackend, isOfflineError, RpcError, setStaffToken } from './backend'
 import i18n from './i18n'
 
-export type Role = 'owner' | 'manager' | 'cashier' | 'server' | 'kitchen' | 'admin'
-type Branch = { id: string; code: string; name: string; role?: Role }
+export type Role = 'owner' | 'admin' | 'manager' | 'cashier' | 'dispatch' | 'kitchen' | 'server' | 'utility'
+type Branch = { id: string; code: string; name: string; role?: Role; roles?: Role[] }
 type Who =
   | { mode: 'none' }
   | { mode: 'device'; device: { id: string; label: string; kind: string; branch_id: string }; branches: Branch[] }
-  | { mode: 'personal'; user: { id: string; full_name: string; language: string }; branches: Branch[] }
-export type Staff = { token: string; expires_at: string; user: { id: string; full_name: string; role: Role; language: string } }
+  | { mode: 'personal'; user: { id: string; full_name: string; language: string; email?: string }; branches: Branch[] }
+export type Staff = { token: string; expires_at: string; user: { id: string; full_name: string; role: Role; roles?: Role[]; language: string } }
 
 interface Auth {
   ready: boolean
   who: Who
   branchId: string | null
   branches: Branch[]
+  /** Highest role of the person acting (shown on screen). */
   role: Role | null
+  /** Every role of the person acting in this branch (e.g. server + dispatch). */
+  roles: Role[]
+  /** True when the person has one of these roles; owner and admin always, dispatch counts as kitchen. */
+  can(...roles: Role[]): boolean
   userName: string | null
   userId: string | null
   /** Staff token for RPCs from shared devices; null for personal logins. */
   token: string | null
   staff: Staff | null
   cachedStaff: Staff[]
+  /** Set after opening an invite or password-reset link: the person must choose a password. */
+  needsPassword: boolean
+  passwordDone(): void
   refresh(): Promise<void>
-  signIn(account: { email?: string; password?: string; authUid?: string }): Promise<void>
+  signIn(email: string, password: string): Promise<void>
   signOut(): Promise<void>
+  registerDevice(label: string, kind: string): Promise<void>
   pinSignIn(userId: string, pin: string): Promise<{ ok: boolean; message?: string }>
   managerOverride(userId: string, pin: string): Promise<string>
   switchToCached(userId: string): void
@@ -38,10 +47,14 @@ const ACTIVE = 'gkb-active-staff'
 const BRANCH = 'gkb-branch'
 const WHO = 'gkb-who'
 
-// A real device has one identity (localStorage). In the demo every browser tab is its own device (sessionStorage).
-const store: Storage = backendKind() === 'local' ? sessionStorage : localStorage
+// Read the link type before Supabase clears the address bar (invite and password-reset links).
+const linkType = new URLSearchParams(location.hash.slice(1)).get('type')
+const store = localStorage
 const read = <T,>(k: string, d: T): T => { try { return JSON.parse(store.getItem(k) ?? '') ?? d } catch { return d } }
 const valid = (s: Staff) => new Date(s.expires_at).getTime() > Date.now()
+
+export const hasRole = (mine: Role[], wanted: Role[]) =>
+  mine.some((r) => r === 'owner' || r === 'admin' || wanted.includes(r) || (r === 'dispatch' && wanted.includes('kitchen')))
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
@@ -49,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [branchId, setBranchId] = useState<string | null>(store.getItem(BRANCH))
   const [tokens, setTokens] = useState<Record<string, Staff>>(read(TOKENS, {}))
   const [activeId, setActiveId] = useState<string | null>(store.getItem(ACTIVE))
+  const [needsPassword, setNeedsPassword] = useState(linkType === 'invite' || linkType === 'recovery' || location.pathname === '/set-password')
 
   const refresh = useCallback(async () => {
     const b = await getBackend()
@@ -65,21 +79,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
       }
     } catch (e) {
-      if (!isOfflineError(e)) throw e // offline: keep the cached identity
+      if (!isOfflineError(e)) { setWho({ mode: 'none' }); store.removeItem(WHO) } // offline: keep the cached identity
     } finally {
       setReady(true)
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    refresh()
+    let off = () => {}
+    getBackend().then((b) => {
+      off = b.onAuth((event) => {
+        if (event === 'PASSWORD_RECOVERY') setNeedsPassword(true)
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'PASSWORD_RECOVERY') refresh()
+      })
+    })
+    return () => off()
+  }, [refresh])
 
   const saveTokens = (t: Record<string, Staff>) => { setTokens(t); store.setItem(TOKENS, JSON.stringify(t)) }
   const activate = (id: string | null) => { setActiveId(id); id ? store.setItem(ACTIVE, id) : store.removeItem(ACTIVE) }
 
   const staff = who.mode === 'device' && activeId && tokens[activeId] && valid(tokens[activeId]) ? tokens[activeId] : null
+  // Set during render so the very first data requests already carry the staff token.
+  setStaffToken(staff?.token ?? null)
   const branches = who.mode === 'none' ? [] : who.branches
-  const role: Role | null = who.mode === 'device' ? staff?.user.role ?? null
-    : who.mode === 'personal' ? (branches.find((b) => b.id === branchId)?.role ?? null) : null
+  const branch = branches.find((b) => b.id === branchId)
+  const roles: Role[] = who.mode === 'device' ? (staff ? staff.user.roles ?? [staff.user.role] : [])
+    : who.mode === 'personal' ? (branch?.roles ?? (branch?.role ? [branch.role] : [])) : []
+  const role: Role | null = who.mode === 'device' ? staff?.user.role ?? null : who.mode === 'personal' ? branch?.role ?? null : null
 
   useEffect(() => {
     const lang = staff?.user.language ?? (who.mode === 'personal' ? who.user.language : 'en')
@@ -87,15 +115,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [staff, who])
 
   const value = useMemo<Auth>(() => ({
-    ready, who, branchId, branches, role, staff,
+    ready, who, branchId, branches, role, roles, staff, needsPassword,
+    can: (...wanted: Role[]) => hasRole(roles, wanted),
     token: staff?.token ?? null,
     userName: staff?.user.full_name ?? (who.mode === 'personal' ? who.user.full_name : null),
     userId: staff?.user.id ?? (who.mode === 'personal' ? who.user.id : null),
     cachedStaff: Object.values(tokens).filter(valid),
     refresh,
-    async signIn(account) {
+    passwordDone() {
+      setNeedsPassword(false)
+      if (location.pathname === '/set-password') history.replaceState(null, '', '/')
+    },
+    async signIn(email, password) {
       const b = await getBackend()
-      await b.signIn(account)
+      await b.signIn(email.trim(), password)
       saveTokens({}); activate(null)
       await refresh()
     },
@@ -105,6 +138,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       saveTokens({}); activate(null)
       store.removeItem(WHO)
       setWho({ mode: 'none' })
+    },
+    // A manager signed in on this phone/tablet turns it into a shared device (§11.1).
+    async registerDevice(label, kind) {
+      if (!branchId) throw new RpcError('NO_BRANCH', 'Pick a branch first.')
+      const b = await getBackend()
+      const r = await b.invoke<{ email: string; password: string }>('register-device', { branch_id: branchId, label, kind })
+      await b.signOut()
+      await b.signIn(r.email, r.password)
+      saveTokens({}); activate(null)
+      await refresh()
     },
     async pinSignIn(userId, pin) {
       if (who.mode !== 'device') throw new RpcError('ERROR', 'Not a shared device')
@@ -126,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     switchToCached(userId) { if (tokens[userId] && valid(tokens[userId])) activate(userId) },
     lock() { activate(null) },
     setBranch(id) { setBranchId(id); store.setItem(BRANCH, id) },
-  }), [ready, who, branchId, branches, role, staff, tokens, refresh])
+  }), [ready, who, branchId, branches, role, roles.join(','), staff, tokens, refresh, needsPassword]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

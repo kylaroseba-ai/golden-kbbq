@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden KBBQ Backend Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* One visual world: the restaurant's black and gold. Layout: single reading column, wide figures scroll on their own. */
+:root {
+  --bg: #0c0b09;
+  --card: #16140f;
+  --line: #2a2620;
+  --ink: #ece6da;
+  --muted: #a39a88;
+  --gold: #d4b062;
+  --gold-soft: rgba(212,176,98,.14);
+  --ok: #7fd19b; --warn: #f0a860; --bad: #f08a7a; --info: #8fb4ff;
+  --display: "Cinzel", Georgia, serif;
+  --body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--body); }
+main { max-width: 1060px; margin: 0 auto; padding: 40px 20px 80px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; letter-spacing: .02em; margin: 0; }
+h1 { font-size: 34px; line-height: 1.2; }
+h2 { font-size: 22px; margin: 56px 0 6px; color: #f3ecdd; }
+h3 { font-size: 15px; font-family: var(--body); font-weight: 700; letter-spacing: 0; margin: 0 0 6px; }
+p { margin: 0 0 12px; max-width: 72ch; }
+.eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.lede { color: var(--muted); font-size: 16px; margin-top: 10px; }
+.sub { color: var(--muted); margin-bottom: 18px; }
+a { color: var(--gold); }
+.status { display: inline-flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.pill { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; background: var(--line); color: var(--muted); white-space: nowrap; }
+.pill.gold { background: var(--gold-soft); color: var(--gold); }
+.pill.ok { background: #14291b; color: var(--ok); }
+.pill.warn { background: #3a2614; color: var(--warn); }
+.pill.bad { background: #3a1714; color: var(--bad); }
+.grid { display: grid; gap: 12px; }
+.g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+.card.key { border-color: rgba(212,176,98,.5); }
+.card p:last-child { margin-bottom: 0; }
+.small { font-size: 13px; color: var(--muted); }
+ol.decisions { counter-reset: d; list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+ol.decisions li { counter-increment: d; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 14px 56px; position: relative; }
+ol.decisions li::before { content: counter(d); position: absolute; left: 16px; top: 13px; width: 26px; height: 26px; border-radius: 50%; background: var(--gold-soft); color: var(--gold); font-weight: 700; display: grid; place-items: center; font-size: 13px; }
+ol.decisions b { color: #f3ecdd; }
+figure { margin: 18px 0 0; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+figure .scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; min-width: 760px; color: var(--ink); font-family: var(--body); }
+figure.narrow svg { min-width: 560px; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 10px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--card); margin-top: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+tr:last-child td { border-bottom: 0; }
+td.c, th.c { text-align: center; }
+.y { color: var(--ok); font-weight: 700; }
+.n { color: #5a5348; }
+.p { color: var(--warn); font-weight: 700; }
+.domain { display: flex; flex-direction: column; gap: 8px; }
+.domain .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.tbl { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--gold); }
+.domain ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.domain li { font-size: 13px; color: var(--muted); }
+.domain li .tbl { margin-right: 6px; }
+.new { color: var(--ok); font-size: 11px; font-weight: 700; margin-left: 4px; }
+.steps { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; }
+.steps li { display: grid; grid-template-columns: 86px 1fr; gap: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.steps .when { color: var(--gold); font-weight: 700; font-size: 13px; }
+.q { border-left: 3px solid var(--gold); }
+footer { margin-top: 60px; color: var(--muted); font-size: 12px; }
+@media (max-width: 520px) { h1 { font-size: 27px; } .steps li { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Golden Korean BBQ · Restaurant system · Proposal for review</div>
+  <h1>Backend architecture: accounts, data and two databases</h1>
+  <p class="lede">How the system moves from the in-browser demo to a real, shared Supabase backend, with a production database for the Candon branch and a separate testing database for development. Nothing below is built yet. Confirm or change the decisions in section 1 and the open questions at the end, and I'll start.</p>
+  <div class="status"><span class="pill gold">Proposal v1 · 4 Nov 2026</span><span class="pill">Spec v0.3</span><span class="pill">57 tables already in Supabase</span><span class="pill warn">Supabase plan: Free</span></div>
+
+  <h2>1. Decisions to confirm</h2>
+  <p class="sub">These shape everything else. My recommendation is the first option in each.</p>
+  <ol class="decisions">
+    <li><b>Two Supabase projects, not branches.</b> Keep your existing project <span class="tbl">Golden Korean BBQ</span> (Singapore, already has all 8 migrations, empty) as <b>PROD</b>. Create a second free project <span class="tbl">Golden Korean BBQ – Test</span> in Singapore as <b>TEST</b>. Supabase branching needs a paid plan and costs about US$0.013 per hour per branch; a second free project costs nothing.</li>
+    <li><b>Demo mode is removed from every build.</b> The website, previews and your laptop always talk to a real Supabase project. The in-browser database stays only inside the automated tests (<span class="tbl">npm test</span>), where it checks the SQL without touching either project.</li>
+    <li><b>Your laptop and Vercel previews use TEST; only the live site uses PROD.</b> Database changes are always applied to TEST first, tested, then applied to PROD.</li>
+    <li><b>Nobody can sign themselves up.</b> Public sign-up is turned off in Supabase. Owner, manager and admin logins are invited by email and set their own password. Shared tablets and phones are registered by a manager from inside the app. Staff without email get a PIN only.</li>
+    <li><b>PROD starts with the Candon structure, not test data.</b> Branch, categories, items with the Appendix A levels, menu and prices, discounts, 20 tables, prep recipes and message templates. No fake staff, no fake stock: the real opening count is entered on the day. TEST gets the full demo data.</li>
+    <li><b>Upgrade PROD to Supabase Pro before opening day.</b> Free projects pause after a week with no activity and have no downloadable daily backups, which the spec calls unacceptable for a POS. Building and testing can stay on Free.</li>
+  </ol>
+
+  <h2>2. Environments</h2>
+  <p class="sub">Three places run the app; two databases hold the data. A database change travels one way: from your laptop, through TEST, to PROD.</p>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 400" role="img" aria-label="Laptop and Vercel previews connect to the TEST Supabase project; the live Vercel site connects to the PROD Supabase project. Migrations are applied to TEST first, then PROD. GitHub main deploys to Vercel.">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+        <marker id="a1g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d4b062"/></marker>
+      </defs>
+      <text x="20" y="30" fill="#a39a88" font-size="11" font-weight="700" letter-spacing="1.5">WHERE THE APP RUNS</text>
+      <text x="640" y="30" fill="#a39a88" font-size="11" font-weight="700" letter-spacing="1.5">SUPABASE (SINGAPORE)</text>
+      <!-- laptop -->
+      <rect x="20" y="50" width="250" height="78" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="38" y="78" fill="currentColor" font-size="14" font-weight="700">Your laptop</text>
+      <text x="38" y="98" fill="#a39a88" font-size="12">npm run dev · .env.local</text>
+      <text x="38" y="115" fill="#a39a88" font-size="12">localhost:5173</text>
+      <!-- preview -->
+      <rect x="20" y="150" width="250" height="78" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="38" y="178" fill="currentColor" font-size="14" font-weight="700">Vercel preview</text>
+      <text x="38" y="198" fill="#a39a88" font-size="12">every branch / pull request</text>
+      <text x="38" y="215" fill="#a39a88" font-size="12">golden-kbbq-git-*.vercel.app</text>
+      <!-- prod site -->
+      <rect x="20" y="290" width="250" height="78" rx="12" fill="#1e1b15" stroke="#d4b062"/>
+      <text x="38" y="318" fill="#d4b062" font-size="14" font-weight="700">Live website</text>
+      <text x="38" y="338" fill="#a39a88" font-size="12">golden-kbbq.vercel.app</text>
+      <text x="38" y="355" fill="#a39a88" font-size="12">restaurant tablets &amp; phones</text>
+      <!-- github -->
+      <rect x="340" y="200" width="190" height="64" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="358" y="226" fill="currentColor" font-size="14" font-weight="700">GitHub · main</text>
+      <text x="358" y="246" fill="#a39a88" font-size="12">code + migrations</text>
+      <!-- test db -->
+      <rect x="640" y="60" width="330" height="140" rx="14" fill="#16140f" stroke="#3a352c"/>
+      <text x="660" y="90" fill="currentColor" font-size="15" font-weight="700">TEST project</text>
+      <text x="660" y="110" fill="#a39a88" font-size="12">Golden Korean BBQ – Test · new, free</text>
+      <text x="660" y="134" fill="#a39a88" font-size="12">• full demo data, Candon + Taft copy</text>
+      <text x="660" y="152" fill="#a39a88" font-size="12">• test logins, fake PINs</text>
+      <text x="660" y="170" fill="#a39a88" font-size="12">• safe to wipe and reload any time</text>
+      <!-- prod db -->
+      <rect x="640" y="250" width="330" height="140" rx="14" fill="#1e1b15" stroke="#d4b062"/>
+      <text x="660" y="280" fill="#d4b062" font-size="15" font-weight="700">PROD project</text>
+      <text x="660" y="300" fill="#a39a88" font-size="12">Golden Korean BBQ · existing, schema ready</text>
+      <text x="660" y="324" fill="#a39a88" font-size="12">• real Candon data only</text>
+      <text x="660" y="342" fill="#a39a88" font-size="12">• invited owner/manager, registered devices</text>
+      <text x="660" y="360" fill="#a39a88" font-size="12">• Pro plan + daily backups before opening</text>
+      <!-- connections -->
+      <line x1="270" y1="89" x2="636" y2="110" stroke="currentColor" stroke-width="1.5" marker-end="url(#a1)"/>
+      <text x="420" y="88" fill="currentColor" font-size="11">reads &amp; writes</text>
+      <line x1="270" y1="189" x2="636" y2="150" stroke="currentColor" stroke-width="1.5" marker-end="url(#a1)"/>
+      <line x1="270" y1="329" x2="636" y2="320" stroke="#d4b062" stroke-width="2" marker-end="url(#a1g)"/>
+      <text x="410" y="318" fill="#d4b062" font-size="11">reads &amp; writes (only path to PROD data)</text>
+      <!-- deploys -->
+      <line x1="340" y1="248" x2="274" y2="300" stroke="currentColor" stroke-dasharray="4 4" stroke-width="1.3" marker-end="url(#a1)"/>
+      <line x1="340" y1="216" x2="274" y2="206" stroke="currentColor" stroke-dasharray="4 4" stroke-width="1.3" marker-end="url(#a1)"/>
+      <text x="282" y="282" fill="#a39a88" font-size="11">deploys</text>
+      <!-- migration path -->
+      <path d="M530 222 C 590 222, 590 200, 636 190" fill="none" stroke="#d4b062" stroke-width="1.5" stroke-dasharray="2 4" marker-end="url(#a1g)"/>
+      <text x="540" y="176" fill="#d4b062" font-size="11">1 · migration to TEST</text>
+      <path d="M805 200 L805 246" fill="none" stroke="#d4b062" stroke-width="1.5" stroke-dasharray="2 4" marker-end="url(#a1g)"/>
+      <text x="814" y="228" fill="#d4b062" font-size="11">2 · same migration to PROD after tests pass</text>
+    </svg>
+    </div>
+    <figcaption>The live website is the only thing configured with PROD keys. Dashed lines are deployments; dotted gold lines are database changes, which always reach TEST first.</figcaption>
+  </figure>
+
+  <h2>3. People, roles and who can do what</h2>
+  <p class="sub">The org chart for one branch, and the permissions the database enforces. The database checks the role on every action, so hiding a button is never the only protection.</p>
+  <figure class="narrow">
+    <div class="scroll">
+    <svg viewBox="0 0 900 330" role="img" aria-label="Org chart: Owner JD at the top over all branches; the Candon branch manager or head chef reports to the owner; cashiers, servers and kitchen dispatch report to the manager. The system admin is outside the line and does setup only.">
+      <g fill="none" stroke="#3a352c" stroke-width="1.5">
+        <path d="M450 92 L450 120"/><path d="M450 182 L450 210"/><path d="M180 210 L720 210"/>
+        <path d="M180 210 L180 236"/><path d="M450 210 L450 236"/><path d="M720 210 L720 236"/>
+      </g>
+      <path d="M560 60 L690 60" stroke="#a39a88" stroke-width="1.3" stroke-dasharray="4 4" fill="none"/>
+      <rect x="340" y="28" width="220" height="64" rx="12" fill="#1e1b15" stroke="#d4b062"/>
+      <text x="450" y="54" text-anchor="middle" fill="#d4b062" font-size="14" font-weight="700">Owner · JD</text>
+      <text x="450" y="74" text-anchor="middle" fill="#a39a88" font-size="12">all branches · final reorder approval</text>
+      <rect x="690" y="28" width="190" height="64" rx="12" fill="#16140f" stroke="#3a352c" stroke-dasharray="4 4"/>
+      <text x="785" y="54" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">System admin</text>
+      <text x="785" y="74" text-anchor="middle" fill="#a39a88" font-size="12">developer · setup, not service</text>
+      <rect x="320" y="120" width="260" height="62" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="450" y="146" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">Branch manager / head chef</text>
+      <text x="450" y="166" text-anchor="middle" fill="#a39a88" font-size="12">Candon · approves counts, overrides, shifts</text>
+      <rect x="70" y="236" width="220" height="74" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="180" y="262" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">Cashier</text>
+      <text x="180" y="281" text-anchor="middle" fill="#a39a88" font-size="12">billing, invoices, bookings</text>
+      <text x="180" y="298" text-anchor="middle" fill="#a39a88" font-size="12">front counter tablet</text>
+      <rect x="340" y="236" width="220" height="74" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="450" y="262" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">Servers</text>
+      <text x="450" y="281" text-anchor="middle" fill="#a39a88" font-size="12">tables, refills, orders</text>
+      <text x="450" y="298" text-anchor="middle" fill="#a39a88" font-size="12">server phones</text>
+      <rect x="610" y="236" width="220" height="74" rx="12" fill="#16140f" stroke="#3a352c"/>
+      <text x="720" y="262" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">Kitchen / dispatch</text>
+      <text x="720" y="281" text-anchor="middle" fill="#a39a88" font-size="12">tickets, prep, deliveries, counts</text>
+      <text x="720" y="298" text-anchor="middle" fill="#a39a88" font-size="12">kitchen tablet</text>
+    </svg>
+    </div>
+    <figcaption>Each person has one role per branch (table <span class="tbl">user_branch_roles</span>). A second branch adds its own manager and staff under the same owner; nobody sees another branch's data unless they have a role there.</figcaption>
+  </figure>
+
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Action</th><th class="c">Owner</th><th class="c">Manager</th><th class="c">Cashier</th><th class="c">Server</th><th class="c">Kitchen</th><th class="c">Admin</th></tr></thead>
+      <tbody>
+        <tr><td>Time in / out, own schedule</td><td class="c n">—</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td></tr>
+        <tr><td>Open table, refills, orders</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Exceed plate limit, late round, lunch/unli override</td><td class="c y">✓</td><td class="c y">✓</td><td class="c p">PIN</td><td class="c p">PIN</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Mark kitchen tickets served</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td></tr>
+        <tr><td>Bill out, payments, invoices, X/Z readings</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Void a served item or an invoice, manager discount</td><td class="c y">✓</td><td class="c y">✓</td><td class="c p">PIN</td><td class="c p">PIN</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Deliveries, prep runs, counts</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td><td class="c y">✓</td></tr>
+        <tr><td>Approve counts, edit schedules, correct time entries</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Reorder: first approval</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Reorder: final approval</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td></tr>
+        <tr><td>Add staff, set PINs, register devices</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Invite a manager; branch, tax and BIR details</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td></tr>
+        <tr><td>Dashboard and reports</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="small" style="margin-top:8px">PIN = allowed when a manager enters their PIN on that device; the override is saved under the manager's name. This matrix is what the database already enforces, except the three rows about staff, devices and invites, which are new (section 4).</p>
+
+  <h2>4. Accounts: three kinds of sign-in</h2>
+  <p class="sub">The same three kinds the app uses today, now backed by real Supabase Auth. I never type or store anyone's password: invited people set their own, and device secrets are generated by the server.</p>
+  <div class="grid g3">
+    <div class="card key">
+      <h3>Personal login</h3>
+      <p class="small">Owner, manager, admin. Email + password, on their own phone or laptop.</p>
+      <p class="small"><b style="color:var(--ink)">How it's made:</b> the owner (or admin) enters a name, email and role in Setup → People. The server sends a Supabase invite email; the person sets a password and lands in the app.</p>
+      <p class="small"><b style="color:var(--ink)">First one:</b> JD's owner invite is sent once by a setup script you run, or from the Supabase dashboard.</p>
+    </div>
+    <div class="card key">
+      <h3>Shared device</h3>
+      <p class="small">Front counter, each server phone, the kitchen tablet. Signs in once and stays signed in until revoked.</p>
+      <p class="small"><b style="color:var(--ink)">How it's made:</b> a manager signs in on the new tablet, opens Setup → Devices → "Register this device", names it and picks its kind. The server creates the device's own login with a random secret and hands it to that tablet only.</p>
+      <p class="small"><b style="color:var(--ink)">Lost phone:</b> the manager taps Revoke; every session on it stops working.</p>
+    </div>
+    <div class="card key">
+      <h3>Staff PIN</h3>
+      <p class="small">Cashiers, servers, kitchen staff. No email needed. They tap their name on a shared device and enter a 4–6 digit PIN.</p>
+      <p class="small"><b style="color:var(--ink)">How it's made:</b> the manager adds them in Setup → Staff with role and language, and sets a starting PIN. Five wrong PINs lock that person on that device for 15 minutes.</p>
+      <p class="small"><b style="color:var(--ink)">Leaving staff:</b> set inactive; their history stays.</p>
+    </div>
+  </div>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 170" role="img" aria-label="Device registration: manager signs in on the new tablet, taps register, the register-device function checks the manager's role, creates the device login and a devices row, returns the secret to the tablet, which signs in as the device and shows the staff PIN screen.">
+      <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g font-size="12">
+        <rect x="10" y="40" width="170" height="80" rx="12" fill="#16140f" stroke="#3a352c"/>
+        <text x="95" y="68" text-anchor="middle" fill="currentColor" font-weight="700" font-size="13">Manager signs in</text>
+        <text x="95" y="88" text-anchor="middle" fill="#a39a88">on the new tablet</text>
+        <text x="95" y="104" text-anchor="middle" fill="#a39a88">(personal login)</text>
+        <rect x="210" y="40" width="170" height="80" rx="12" fill="#16140f" stroke="#3a352c"/>
+        <text x="295" y="68" text-anchor="middle" fill="currentColor" font-weight="700" font-size="13">Register this device</text>
+        <text x="295" y="88" text-anchor="middle" fill="#a39a88">name: "Server phone 1"</text>
+        <text x="295" y="104" text-anchor="middle" fill="#a39a88">kind: server</text>
+        <rect x="410" y="30" width="200" height="100" rx="12" fill="#1e1b15" stroke="#d4b062"/>
+        <text x="510" y="58" text-anchor="middle" fill="#d4b062" font-weight="700" font-size="13">register-device function</text>
+        <text x="510" y="78" text-anchor="middle" fill="#a39a88">checks caller is a manager</text>
+        <text x="510" y="94" text-anchor="middle" fill="#a39a88">creates device login</text>
+        <text x="510" y="110" text-anchor="middle" fill="#a39a88">+ row in devices</text>
+        <rect x="640" y="40" width="160" height="80" rx="12" fill="#16140f" stroke="#3a352c"/>
+        <text x="720" y="68" text-anchor="middle" fill="currentColor" font-weight="700" font-size="13">Tablet signs in</text>
+        <text x="720" y="88" text-anchor="middle" fill="#a39a88">as the device;</text>
+        <text x="720" y="104" text-anchor="middle" fill="#a39a88">manager is signed out</text>
+        <rect x="830" y="40" width="160" height="80" rx="12" fill="#16140f" stroke="#3a352c"/>
+        <text x="910" y="68" text-anchor="middle" fill="currentColor" font-weight="700" font-size="13">Staff PIN screen</text>
+        <text x="910" y="88" text-anchor="middle" fill="#a39a88">"Who is using</text>
+        <text x="910" y="104" text-anchor="middle" fill="#a39a88">this device?"</text>
+        <g stroke="currentColor" stroke-width="1.5"><line x1="180" y1="80" x2="206" y2="80" marker-end="url(#a2)"/><line x1="380" y1="80" x2="406" y2="80" marker-end="url(#a2)"/><line x1="610" y1="80" x2="636" y2="80" marker-end="url(#a2)"/><line x1="800" y1="80" x2="826" y2="80" marker-end="url(#a2)"/></g>
+        <text x="623" y="150" text-anchor="middle" fill="#a39a88" font-size="11">secret returned once, kept only on that tablet</text>
+      </g>
+    </svg>
+    </div>
+    <figcaption>Device registration takes about a minute per tablet. The device login has access to its own branch only, and a staff member's PIN decides what they can do on it.</figcaption>
+  </figure>
+
+  <h2>5. Data: 57 tables in six areas</h2>
+  <p class="sub">All tables exist in PROD today. Every row carries a <span class="tbl">branch_id</span>, and every change goes through a database function that checks the role and writes the audit log. Additions planned in this phase are marked <span class="new">NEW</span>.</p>
+  <div class="grid g2">
+    <div class="card domain">
+      <div class="head"><h3>Accounts &amp; access</h3><span class="pill">10 tables</span></div>
+      <ul>
+        <li><span class="tbl">organizations</span>, <span class="tbl">branches</span>: the business, each restaurant, its BIR header and settings</li>
+        <li><span class="tbl">profiles</span>: every person; email <span class="new">NEW</span>, PIN (server-only), language, active</li>
+        <li><span class="tbl">user_branch_roles</span>: one role per person per branch</li>
+        <li><span class="tbl">devices</span>, <span class="tbl">pos_terminals</span>: registered tablets/phones; the BIR cashier terminal</li>
+        <li><span class="tbl">staff_tokens</span>, <span class="tbl">pin_attempts</span>: PIN sign-ins and lockouts</li>
+        <li><span class="tbl">idempotency_keys</span>, <span class="tbl">audit_log</span>: offline retries applied once; who changed what</li>
+      </ul>
+    </div>
+    <div class="card domain">
+      <div class="head"><h3>Inventory</h3><span class="pill">18 tables</span></div>
+      <ul>
+        <li><span class="tbl">item_categories</span>, <span class="tbl">items</span>, <span class="tbl">item_stock_levels</span>: what we stock, alert and par levels, live on-hand and average cost</li>
+        <li><span class="tbl">stock_batches</span>, <span class="tbl">stock_movements</span>: FIFO batches with expiry; the ledger, never edited</li>
+        <li><span class="tbl">suppliers</span>, <span class="tbl">supplier_items</span>, <span class="tbl">deliveries</span>, <span class="tbl">delivery_lines</span></li>
+        <li><span class="tbl">prep_recipes</span>, <span class="tbl">prep_recipe_inputs</span>, <span class="tbl">production_runs</span>, <span class="tbl">production_run_inputs</span></li>
+        <li><span class="tbl">waste_logs</span>, <span class="tbl">stock_counts</span>, <span class="tbl">stock_count_lines</span>, <span class="tbl">reorder_lists</span>, <span class="tbl">reorder_lines</span></li>
+      </ul>
+    </div>
+    <div class="card domain">
+      <div class="head"><h3>Menu, tables &amp; POS</h3><span class="pill">14 tables</span></div>
+      <ul>
+        <li><span class="tbl">dining_tables</span>: floor layout and status (free, seated, billing, dirty)</li>
+        <li><span class="tbl">menu_categories</span>, <span class="tbl">menu_items</span>, <span class="tbl">menu_item_price_history</span>, <span class="tbl">discount_types</span></li>
+        <li><span class="tbl">package_refill_items</span>, <span class="tbl">portion_rules</span>: which cuts a package allows; grams each sale deducts</li>
+        <li><span class="tbl">table_sessions</span>, <span class="tbl">session_pax</span>, <span class="tbl">order_lines</span>: one seating, its guests, what was ordered</li>
+        <li><span class="tbl">refill_rounds</span>, <span class="tbl">refill_lines</span>, <span class="tbl">kitchen_tickets</span>, <span class="tbl">kitchen_ticket_lines</span></li>
+      </ul>
+    </div>
+    <div class="card domain">
+      <div class="head"><h3>Billing &amp; BIR</h3><span class="pill">7 tables</span></div>
+      <ul>
+        <li><span class="tbl">bills</span>, <span class="tbl">payments</span>, <span class="tbl">sc_pwd_records</span>: totals, split payments, SC/PWD names and IDs (restricted)</li>
+        <li><span class="tbl">invoices</span>: gap-free numbers per terminal or manual booklet number; void, never delete</li>
+        <li><span class="tbl">cash_shifts</span>, <span class="tbl">x_readings</span>, <span class="tbl">z_readings</span>: cashier float, X per shift, Z per day with grand total</li>
+      </ul>
+    </div>
+    <div class="card domain">
+      <div class="head"><h3>Staff &amp; shifts</h3><span class="pill">2 tables</span></div>
+      <ul>
+        <li><span class="tbl">shift_schedules</span>: who works when, position, break minutes</li>
+        <li><span class="tbl">time_entries</span>: time in, break start/end, time out, minutes late, manager corrections</li>
+      </ul>
+    </div>
+    <div class="card domain">
+      <div class="head"><h3>Reservations &amp; messages</h3><span class="pill">6 tables</span></div>
+      <ul>
+        <li><span class="tbl">reservations</span>, <span class="tbl">reservation_slots_config</span>: bookings and capacity per slot</li>
+        <li><span class="tbl">message_templates</span>, <span class="tbl">outbound_messages</span>: SMS/email text and the send queue</li>
+        <li><span class="tbl">notifications</span>, <span class="tbl">push_subscriptions</span>: staff alerts, phone push</li>
+      </ul>
+    </div>
+  </div>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1000 300" role="img" aria-label="Core relationships: branches own everything. A table session links dining tables, order lines and refill rounds; refill lines and order lines create kitchen tickets and stock movements against items; a bill closes the session and gets payments and an invoice. Profiles link to roles, time entries and schedules.">
+      <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a39a88"/></marker></defs>
+      <g font-size="12" font-family="ui-monospace, Menlo, monospace">
+        <rect x="430" y="10" width="140" height="34" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="500" y="32" text-anchor="middle" fill="#d4b062">branches</text>
+        <rect x="30" y="90" width="150" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="105" y="112" text-anchor="middle" fill="currentColor">profiles</text>
+        <rect x="30" y="160" width="150" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="105" y="182" text-anchor="middle" fill="currentColor">user_branch_roles</text>
+        <rect x="30" y="230" width="150" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="105" y="252" text-anchor="middle" fill="currentColor">time_entries</text>
+        <rect x="210" y="230" width="150" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="285" y="252" text-anchor="middle" fill="currentColor">shift_schedules</text>
+        <rect x="250" y="90" width="150" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="325" y="112" text-anchor="middle" fill="currentColor">dining_tables</text>
+        <rect x="430" y="90" width="140" height="34" rx="8" fill="#1e1b15" stroke="#3a352c"/><text x="500" y="112" text-anchor="middle" fill="currentColor">table_sessions</text>
+        <rect x="400" y="170" width="100" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="450" y="192" text-anchor="middle" fill="currentColor">order_lines</text>
+        <rect x="520" y="170" width="110" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="575" y="192" text-anchor="middle" fill="currentColor">refill_rounds</text>
+        <rect x="460" y="245" width="130" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="525" y="267" text-anchor="middle" fill="currentColor">kitchen_tickets</text>
+        <rect x="640" y="90" width="110" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="695" y="112" text-anchor="middle" fill="currentColor">bills</text>
+        <rect x="790" y="60" width="180" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="880" y="82" text-anchor="middle" fill="currentColor">payments · invoices</text>
+        <rect x="660" y="245" width="140" height="34" rx="8" fill="#1e1b15" stroke="#3a352c"/><text x="730" y="267" text-anchor="middle" fill="currentColor">stock_movements</text>
+        <rect x="830" y="245" width="140" height="34" rx="8" fill="#16140f" stroke="#3a352c"/><text x="900" y="267" text-anchor="middle" fill="currentColor">items · batches</text>
+      </g>
+      <g stroke="#a39a88" stroke-width="1.2" fill="none" marker-end="url(#a3)">
+        <path d="M430 27 L105 27 L105 86"/><path d="M500 44 L500 86"/><path d="M570 27 L880 27 L880 56"/>
+        <path d="M105 124 L105 156"/><path d="M105 194 L105 226"/><path d="M180 107 C 230 140, 260 200, 280 226"/>
+        <path d="M400 107 L426 107"/><path d="M480 124 L455 166"/><path d="M520 124 L565 166"/><path d="M570 107 L636 107"/>
+        <path d="M750 100 L786 85"/><path d="M450 204 L505 241"/><path d="M590 204 L540 241"/>
+        <path d="M500 204 C 560 240, 620 262, 656 262"/><path d="M630 192 C 680 210, 700 230, 712 241"/><path d="M800 262 L826 262"/>
+      </g>
+      <text x="610" y="232" fill="#a39a88" font-size="11">deducts grams</text>
+      <text x="200" y="140" fill="#a39a88" font-size="11">schedules / clocks</text>
+    </svg>
+    </div>
+    <figcaption>The relationships a dinner service touches. Live stock is never typed in: it is the sum of <span class="tbl">stock_movements</span>, written by sales, refills, deliveries, prep, waste and approved counts.</figcaption>
+  </figure>
+
+  <h2>6. A dinner service, step by step</h2>
+  <p class="sub">Who does what, on which device, and what the database records at each step. Every arrow into the database lane is one function call that checks the role and writes the audit log.</p>
+  <figure>
+    <div class="scroll">
+    <svg viewBox="0 0 1180 520" role="img" aria-label="Swim lane of a dinner service across customer, server phone, kitchen tablet, cashier, manager and database lanes: booking, confirmation, seating, refill rounds, serving, low-stock alert, billing and invoice, closing count and approval.">
+      <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <!-- lanes -->
+      <g font-size="12" font-weight="700">
+        <rect x="0" y="10" width="1180" height="80" fill="#13110d"/><text x="14" y="55" fill="#a39a88">Customer</text>
+        <rect x="0" y="90" width="1180" height="80" fill="#0f0e0b"/><text x="14" y="135" fill="#a39a88">Server phone</text>
+        <rect x="0" y="170" width="1180" height="80" fill="#13110d"/><text x="14" y="215" fill="#a39a88">Kitchen tablet</text>
+        <rect x="0" y="250" width="1180" height="80" fill="#0f0e0b"/><text x="14" y="295" fill="#a39a88">Cashier</text>
+        <rect x="0" y="330" width="1180" height="80" fill="#13110d"/><text x="14" y="375" fill="#a39a88">Manager</text>
+        <rect x="0" y="410" width="1180" height="100" fill="#1a160e"/><text x="14" y="465" fill="#d4b062">Database</text>
+      </g>
+      <line x1="110" y1="10" x2="110" y2="510" stroke="#2a2620"/>
+      <g font-size="11">
+        <!-- 1 book -->
+        <rect x="122" y="28" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="170" y="46" text-anchor="middle" fill="currentColor">Books online</text><text x="170" y="62" text-anchor="middle" fill="#a39a88">7 PM · 4 pax</text>
+        <rect x="122" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="170" y="448" text-anchor="middle" fill="currentColor">reservation</text><text x="170" y="463" text-anchor="middle" fill="#a39a88">pending +</text><text x="170" y="478" text-anchor="middle" fill="#a39a88">staff alert</text>
+        <!-- 2 confirm -->
+        <rect x="232" y="268" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="280" y="286" text-anchor="middle" fill="currentColor">Confirms</text><text x="280" y="302" text-anchor="middle" fill="#a39a88">one tap</text>
+        <rect x="232" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="280" y="448" text-anchor="middle" fill="currentColor">SMS queued</text><text x="280" y="463" text-anchor="middle" fill="#a39a88">+ reminder</text><text x="280" y="478" text-anchor="middle" fill="#a39a88">at 4 PM</text>
+        <!-- 3 arrive & seat -->
+        <rect x="342" y="28" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="390" y="46" text-anchor="middle" fill="currentColor">Arrives</text><text x="390" y="62" text-anchor="middle" fill="#a39a88">7:00 PM</text>
+        <rect x="342" y="268" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="390" y="286" text-anchor="middle" fill="currentColor">Seats T7</text><text x="390" y="302" text-anchor="middle" fill="#a39a88">Unli Pork ×4</text>
+        <rect x="342" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="390" y="448" text-anchor="middle" fill="currentColor">table_session</text><text x="390" y="463" text-anchor="middle" fill="#a39a88">2 h timer,</text><text x="390" y="478" text-anchor="middle" fill="#a39a88">cutoff 8:15</text>
+        <!-- 4 refill -->
+        <rect x="452" y="108" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="500" y="126" text-anchor="middle" fill="currentColor">Taps round 2</text><text x="500" y="142" text-anchor="middle" fill="#a39a88">3 meat plates</text>
+        <rect x="452" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="500" y="448" text-anchor="middle" fill="currentColor">−240 g stock</text><text x="500" y="463" text-anchor="middle" fill="#a39a88">checks limit,</text><text x="500" y="478" text-anchor="middle" fill="#a39a88">ticket created</text>
+        <!-- 5 kitchen -->
+        <rect x="562" y="188" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="610" y="206" text-anchor="middle" fill="currentColor">Chime · serves</text><text x="610" y="222" text-anchor="middle" fill="#a39a88">taps Served</text>
+        <rect x="562" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="610" y="448" text-anchor="middle" fill="currentColor">round served</text><text x="610" y="463" text-anchor="middle" fill="#a39a88">next round</text><text x="610" y="478" text-anchor="middle" fill="#a39a88">unlocked</text>
+        <!-- 6 low stock -->
+        <rect x="672" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="720" y="448" text-anchor="middle" fill="currentColor">below alert</text><text x="720" y="463" text-anchor="middle" fill="#a39a88">level → one</text><text x="720" y="478" text-anchor="middle" fill="#a39a88">notification</text>
+        <rect x="672" y="348" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="720" y="366" text-anchor="middle" fill="currentColor">LOW alert</text><text x="720" y="382" text-anchor="middle" fill="#a39a88">preps more</text>
+        <!-- 7 bill -->
+        <rect x="782" y="268" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="830" y="286" text-anchor="middle" fill="currentColor">Bills out</text><text x="830" y="302" text-anchor="middle" fill="#a39a88">cash + GCash</text>
+        <rect x="782" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="830" y="448" text-anchor="middle" fill="currentColor">invoice no.</text><text x="830" y="463" text-anchor="middle" fill="#a39a88">grand total +,</text><text x="830" y="478" text-anchor="middle" fill="#a39a88">table → dirty</text>
+        <rect x="782" y="28" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="830" y="46" text-anchor="middle" fill="currentColor">Pays · leaves</text><text x="830" y="62" text-anchor="middle" fill="#a39a88">sales invoice</text>
+        <!-- 8 close -->
+        <rect x="892" y="188" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="940" y="206" text-anchor="middle" fill="currentColor">Closing count</text><text x="940" y="222" text-anchor="middle" fill="#a39a88">weighs stock</text>
+        <rect x="1002" y="348" width="96" height="44" rx="8" fill="#16140f" stroke="#3a352c"/><text x="1050" y="366" text-anchor="middle" fill="currentColor">Approves</text><text x="1050" y="382" text-anchor="middle" fill="#a39a88">variances</text>
+        <rect x="1002" y="428" width="96" height="62" rx="8" fill="#1e1b15" stroke="#d4b062"/><text x="1050" y="448" text-anchor="middle" fill="currentColor">ledger</text><text x="1050" y="463" text-anchor="middle" fill="#a39a88">adjusted,</text><text x="1050" y="478" text-anchor="middle" fill="#a39a88">shift summary</text>
+      </g>
+      <g stroke="currentColor" stroke-width="1.3" fill="none" marker-end="url(#a4)">
+        <path d="M170 72 L170 424"/><path d="M218 450 L228 450"/>
+        <path d="M280 312 L280 424"/><path d="M328 455 L338 455"/>
+        <path d="M390 72 L390 264"/><path d="M390 312 L390 424"/>
+        <path d="M500 152 L500 424"/><path d="M548 445 C 560 380, 580 280, 600 236"/>
+        <path d="M610 232 L610 424"/>
+        <path d="M548 470 L668 470"/><path d="M720 428 L720 396"/>
+        <path d="M830 312 L830 424"/><path d="M830 268 L830 76"/>
+        <path d="M940 232 C 960 330, 990 360, 998 370"/><path d="M1050 392 L1050 424"/>
+      </g>
+    </svg>
+    </div>
+    <figcaption>Realtime keeps every screen current: when the database records a step, the other devices refresh within a second or two. If a server phone is offline, its round waits on the phone and posts when it reconnects; the server tells dispatch verbally in the meantime.</figcaption>
+  </figure>
+
+  <h2>7. A staff shift, step by step</h2>
+  <figure class="narrow">
+    <div class="scroll">
+    <svg viewBox="0 0 1000 150" role="img" aria-label="Shift workflow: manager publishes the weekly schedule, staff sign in with PIN and time in, the board marks late or absent, staff take a break and time out, the manager corrects any missed entries, and the attendance report feeds payroll.">
+      <defs><marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+      <g font-size="12">
+        <rect x="10" y="30" width="150" height="80" rx="12" fill="#16140f" stroke="#3a352c"/><text x="85" y="58" text-anchor="middle" fill="currentColor" font-weight="700">Weekly schedule</text><text x="85" y="78" text-anchor="middle" fill="#a39a88">manager adds shifts</text><text x="85" y="94" text-anchor="middle" fill="#a39a88">shift_schedules</text>
+        <rect x="178" y="30" width="150" height="80" rx="12" fill="#16140f" stroke="#3a352c"/><text x="253" y="58" text-anchor="middle" fill="currentColor" font-weight="700">PIN → Time in</text><text x="253" y="78" text-anchor="middle" fill="#a39a88">on any shared device</text><text x="253" y="94" text-anchor="middle" fill="#a39a88">late minutes saved</text>
+        <rect x="346" y="30" width="150" height="80" rx="12" fill="#1e1b15" stroke="#d4b062"/><text x="421" y="58" text-anchor="middle" fill="#d4b062" font-weight="700">Live board</text><text x="421" y="78" text-anchor="middle" fill="#a39a88">working · break ·</text><text x="421" y="94" text-anchor="middle" fill="#a39a88">late · absent</text>
+        <rect x="514" y="30" width="150" height="80" rx="12" fill="#16140f" stroke="#3a352c"/><text x="589" y="58" text-anchor="middle" fill="currentColor" font-weight="700">Break · Time out</text><text x="589" y="78" text-anchor="middle" fill="#a39a88">time_entries</text><text x="589" y="94" text-anchor="middle" fill="#a39a88">never deleted</text>
+        <rect x="682" y="30" width="150" height="80" rx="12" fill="#16140f" stroke="#3a352c"/><text x="757" y="58" text-anchor="middle" fill="currentColor" font-weight="700">Corrections</text><text x="757" y="78" text-anchor="middle" fill="#a39a88">manager + note</text><text x="757" y="94" text-anchor="middle" fill="#a39a88">for missed time-outs</text>
+        <rect x="850" y="30" width="140" height="80" rx="12" fill="#16140f" stroke="#3a352c"/><text x="920" y="58" text-anchor="middle" fill="currentColor" font-weight="700">Attendance</text><text x="920" y="78" text-anchor="middle" fill="#a39a88">hours, lates</text><text x="920" y="94" text-anchor="middle" fill="#a39a88">CSV for payroll</text>
+        <g stroke="currentColor" stroke-width="1.5"><line x1="160" y1="70" x2="174" y2="70" marker-end="url(#a5)"/><line x1="328" y1="70" x2="342" y2="70" marker-end="url(#a5)"/><line x1="496" y1="70" x2="510" y2="70" marker-end="url(#a5)"/><line x1="664" y1="70" x2="678" y2="70" marker-end="url(#a5)"/><line x1="832" y1="70" x2="846" y2="70" marker-end="url(#a5)"/></g>
+      </g>
+    </svg>
+    </div>
+    <figcaption>This already works on the database side (3 tests cover it). This phase connects it to the real backend.</figcaption>
+  </figure>
+
+  <h2>8. What is saved, and where</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Data</th><th>Today (demo)</th><th>After this phase</th></tr></thead>
+      <tbody>
+        <tr><td>Logins, roles, staff, PINs, devices</td><td>Sample data in each visitor's browser</td><td><b>PROD database + Supabase Auth</b>, shared by every device</td></tr>
+        <tr><td>Items, stock, deliveries, prep, waste, counts, reorders</td><td>Each browser separately</td><td><b>PROD</b>, one live stock for the whole branch</td></tr>
+        <tr><td>Tables, orders, refills, kitchen tickets, bills, invoices, X/Z readings</td><td>Each browser separately</td><td><b>PROD</b>; invoices and readings can never be edited or deleted</td></tr>
+        <tr><td>Schedules and time entries</td><td>Each browser separately</td><td><b>PROD</b></td></tr>
+        <tr><td>Reservations and messages</td><td>Each browser separately</td><td><b>PROD</b>; SMS sending starts once Semaphore keys exist</td></tr>
+        <tr><td>Actions taken while offline</td><td>Device outbox</td><td>Still the device outbox, posted to PROD on reconnect, applied exactly once</td></tr>
+        <tr><td>Menu, items and tables cached for offline</td><td>Device</td><td>Device copy of PROD, refreshed when online</td></tr>
+        <tr><td>Your test runs on the laptop</td><td>Browser</td><td><b>TEST</b> database only; never mixes with PROD</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>9. What I'll build and change, in order</h2>
+  <ol class="steps">
+    <li><span class="when">Step 1</span><span>Create the free TEST project in Singapore, apply the same 8 migrations, load the full demo data, and confirm the 26 database tests still pass.</span></li>
+    <li><span class="when">Step 2</span><span><b>Accounts backend:</b> profile email and invite link-up; functions to add, edit, deactivate staff and set PINs; the <span class="tbl">register-device</span> and <span class="tbl">invite-user</span> Edge Functions; Setup → People, Staff and Devices screens; turn off public sign-up; tests for each role rule.</span></li>
+    <li><span class="when">Step 3</span><span><b>Setup screens still missing:</b> branch and BIR details, portion rules, prep recipes, package cuts, discounts, message templates, POS terminal. So Candon can be configured without SQL.</span></li>
+    <li><span class="when">Step 4</span><span><b>Remove demo mode:</b> delete the in-browser backend and demo bar from the app; the app refuses to start without Supabase settings. Your laptop gets <span class="tbl">.env.local</span> pointing at TEST.</span></li>
+    <li><span class="when">Step 5</span><span><b>Vercel:</b> Production variables → PROD keys; Preview and Development → TEST keys. Supabase sign-in redirect URLs set for the live site and localhost.</span></li>
+    <li><span class="when">Step 6</span><span><b>PROD:</b> load the Candon structure; send JD's owner invite (and yours as admin); deploy; you register the front counter, server phones and kitchen tablet; we do a short test service on PROD and wipe it before opening.</span></li>
+  </ol>
+
+  <h2>10. Questions for you</h2>
+  <div class="grid g2">
+    <div class="card q"><h3>Owner and admin emails</h3><p class="small">Which email should JD's owner login use (the spec says his business email owns all accounts), and which one for you as admin? Invites are sent only after you confirm.</p></div>
+    <div class="card q"><h3>Candon staff list</h3><p class="small">Names and roles of the opening team (manager/head chef, cashiers, servers, kitchen). PINs can be set by the manager in the app, so I don't need them.</p></div>
+    <div class="card q"><h3>Branch and BIR details</h3><p class="small">Registered business name, address, VAT REG TIN with branch code, phone, branch email. These print on every invoice. Placeholders are fine until the accountant confirms.</p></div>
+    <div class="card q"><h3>Final menu and prices</h3><p class="small">Are ₱499 / ₱599 unli and ₱149 / ₱270 / ₱350 lunch final? Add-on and drink prices? Your mockups show Classic ₱499, Premium ₱699 and Royal ₱899, so tell me which set Candon uses.</p></div>
+    <div class="card q"><h3>Supabase Pro timing</h3><p class="small">Upgrade PROD to Pro now, or right before opening? Pro is about US$25 a month plus about US$10 for each extra project; verify current pricing on Supabase before buying.</p></div>
+    <div class="card q"><h3>Taft</h3><p class="small">Should Taft exist in PROD now (as a second branch with its own staff later), or only in TEST as the spec's test copy?</p></div>
+  </div>
+
+  <footer>Golden Korean BBQ restaurant system · backend architecture proposal v1 · prepared 4 November 2026 for review by Kyla and JD. Based on SPEC v0.3 and the 57-table schema already applied to the PROD project.</footer>
+</main>
+</body>
+</html>

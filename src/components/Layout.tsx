@@ -2,19 +2,18 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { isManager, useAuth, type Role } from '../lib/auth'
-import { backendKind, getBackend } from '../lib/backend'
+import { hasRole, isManager, useAuth, type Role } from '../lib/auth'
+import { getBackend } from '../lib/backend'
 import { flushOutbox, localDb } from '../lib/outbox'
 import { setServerTime, useLiveRefresh, useNow, useOnline, useRpc } from '../lib/hooks'
-import { DemoBar } from './DemoBar'
 import { Avatar, Logo } from './ui'
 
 type NavItem = { to: string; key: string; label: string; icon: string; roles: Role[] | 'all'; badge?: string; group: string }
 const NAV: NavItem[] = [
   { to: '/dashboard', key: 'dashboard', label: 'Dashboard', icon: '◧', roles: ['owner', 'manager'], group: 'Overview' },
-  { to: '/time', key: 'time', label: 'Time clock', icon: '◷', roles: ['server', 'cashier', 'kitchen', 'manager'], group: 'Overview' },
+  { to: '/time', key: 'time', label: 'Time clock', icon: '◷', roles: ['server', 'cashier', 'kitchen', 'utility', 'manager'], group: 'Overview' },
   { to: '/floor', key: 'floor', label: 'Tables & POS', icon: '▦', roles: ['server', 'cashier', 'manager', 'owner'], group: 'Service' },
-  { to: '/kitchen', key: 'kitchen', label: 'Kitchen', icon: '♨', roles: ['kitchen', 'manager'], badge: 'kitchen', group: 'Service' },
+  { to: '/kitchen', key: 'kitchen', label: 'Kitchen / Dispatch', icon: '♨', roles: ['kitchen', 'manager'], badge: 'kitchen', group: 'Service' },
   { to: '/reservations', key: 'reservations', label: 'Reservations', icon: '☷', roles: ['cashier', 'manager', 'owner'], badge: 'reservations', group: 'Service' },
   { to: '/shift', key: 'shift', label: 'Cashier shift', icon: '₱', roles: ['cashier', 'manager'], group: 'Service' },
   { to: '/stock', key: 'stock', label: 'Live stock', icon: '▤', roles: 'all', badge: 'stock', group: 'Inventory' },
@@ -28,8 +27,9 @@ const NAV: NavItem[] = [
   { to: '/reports', key: 'reports', label: 'Reports', icon: '◫', roles: ['manager', 'owner'], group: 'Back office' },
   { to: '/admin', key: 'admin', label: 'Setup', icon: '⚙', roles: ['manager', 'owner'], group: 'Back office' },
 ]
-// owner and admin can open every screen
-export const navFor = (role: Role | null) => NAV.filter((n) => role && (n.roles === 'all' || n.roles.includes(role) || role === 'admin'))
+// Owner and admin can open every screen; dispatch opens the kitchen screens; utility (dishwasher) only the time clock.
+export const navFor = (roles: Role[]) => NAV.filter((n) => roles.length > 0 &&
+  (n.roles === 'all' ? !(roles.length === 1 && roles[0] === 'utility') : hasRole(roles, n.roles)))
 const GROUPS = ['Overview', 'Service', 'Inventory', 'Back office']
 
 export function Layout() {
@@ -69,7 +69,7 @@ export function Layout() {
     return () => { clearInterval(iv); window.removeEventListener('online', run); document.removeEventListener('visibilitychange', run); window.removeEventListener('gkb-offline-toggle', run) }
   }, [auth.token, auth.branchId])
 
-  const items = navFor(auth.role)
+  const items = navFor(auth.roles)
   const badge = (n: NavItem) => (n.badge ? Number(counts.data?.[n.badge] ?? 0) : 0)
   // phones: first four screens in the bottom bar, the rest under "More"
   const primary = items.filter((n) => n.to !== '/dashboard' || isManager(auth.role)).slice(0, 4)
@@ -87,7 +87,6 @@ export function Layout() {
 
   return (
     <div className="min-h-full flex flex-col">
-      {backendKind() === 'local' && <DemoBar />}
       <div className="flex flex-1 min-h-0">
         <aside className="no-print hidden lg:flex flex-col w-64 shrink-0 sticky top-0 h-screen overflow-y-auto border-r border-charcoal-800 bg-[#0a0907] px-4 py-6">
           <Logo className="h-14 mx-auto mb-7" />
@@ -107,7 +106,7 @@ export function Layout() {
             <Avatar name={auth.userName ?? '?'} />
             <div className="min-w-0 flex-1 leading-tight">
               <div className="text-sm font-semibold truncate">{auth.userName}</div>
-              <div className="text-xs text-silver capitalize truncate">{auth.role}{auth.who.mode === 'device' ? ` · ${auth.who.device.label}` : ''}</div>
+              <div className="text-xs text-silver capitalize truncate">{auth.roles.join(" + ")}{auth.who.mode === 'device' ? ` · ${auth.who.device.label}` : ''}</div>
             </div>
           </div>
         </aside>
@@ -130,7 +129,7 @@ export function Layout() {
                 <NavLink to="/alerts" className="relative h-11 min-w-11 px-3 grid place-items-center rounded-xl border border-charcoal-700 bg-charcoal-900 hover:border-charcoal-600" aria-label={t('alerts')}>
                   <span className="flex items-center gap-2 text-sm">🔔{unread > 0 && <span className="rounded-full bg-gold-700/60 text-gold-200 text-[11px] font-bold px-1.5">{unread}</span>}</span>
                 </NavLink>
-                <div className="hidden sm:flex lg:hidden items-center gap-2 pl-1"><Avatar name={auth.userName ?? '?'} /><span className="text-sm font-semibold">{auth.userName?.split(' ')[0]} · <span className="capitalize text-silver font-normal">{auth.role}</span></span></div>
+                <div className="hidden sm:flex lg:hidden items-center gap-2 pl-1"><Avatar name={auth.userName ?? '?'} /><span className="text-sm font-semibold">{auth.userName?.split(' ')[0]} · <span className="capitalize text-silver font-normal">{auth.roles.join(" + ")}</span></span></div>
                 {auth.who.mode === 'device'
                   ? <button className="h-11 px-4 rounded-xl bg-charcoal-900 border border-charcoal-700 hover:border-charcoal-600 text-sm font-medium" onClick={() => { auth.lock(); nav('/') }}>{t('switch_user')}</button>
                   : <button className="h-11 px-4 rounded-xl bg-charcoal-900 border border-charcoal-700 hover:border-charcoal-600 text-sm font-medium" onClick={() => auth.signOut().then(() => nav('/'))}>Sign out</button>}
@@ -175,10 +174,10 @@ export function Layout() {
 }
 
 export function Gate({ roles, children }: { roles: Role[]; children: ReactNode }) {
-  const { role } = useAuth()
-  // owner and admin can open every screen
-  if (!role || !(roles.includes(role) || role === 'admin' || role === 'owner')) {
-    return <div className="text-silver p-8">Your role ({role}) can’t open this screen.</div>
+  const auth = useAuth()
+  // owner and admin can open every screen; the database checks the same rules again
+  if (!auth.can(...roles)) {
+    return <div className="text-silver p-8">Your role ({auth.role ?? 'none'}) can’t open this screen.</div>
   }
   return <>{children}</>
 }
