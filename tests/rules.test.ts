@@ -110,3 +110,37 @@ describe('kitchen and dispatch', () => {
     expect(r.round_no).toBe(2)
   })
 })
+
+describe('internal receipts and shift report', () => {
+  it('bills get internal numbers C-000001…, need no BIR booklet number, and the shift report adds up', async () => {
+    const ben = await t.pin(ids.phone1, ids.server1)
+    const carlo = await t.pin(ids.counter, ids.cashier)
+    const shift = await t.rpc(ids.counter.auth, 'open_cash_shift', { p_token: carlo, p_terminal_id: ids.terminal, p_opening_float: 2000 })
+    const a = await open(ben, '1', '2026-12-05 18:00', ids.unliPork, [{ discount_type_id: ids.regular, pax_count: 2 }, { discount_type_id: ids.senior, pax_count: 1 }])
+    const b = await open(ben, '2', '2026-12-05 18:00', ids.unliPork, [{ discount_type_id: ids.regular, pax_count: 2 }])
+    const settle = (sid: string, payments: object[]) => t.rpc(ids.counter.auth, 'settle_bill', { p_client_uuid: uuid(), p_token: carlo, p_session_id: sid,
+      p_terminal_id: ids.terminal, p_payments: payments, p_sc_pwd: [{ kind: 'sc', id_number: 'SC-1', full_name: 'Lola' }] })
+    const r1 = await settle(a, [{ method: 'cash', amount: 1500 }])                      // 998 + 356.43 = 1,354.43
+    const r2 = await settle(b, [{ method: 'gcash', amount: 998, reference_no: 'GC-1' }])
+    const inv1 = await t.rpc(ids.counter.auth, 'get_invoice', { p_invoice_id: r1.invoice_id }, carlo)
+    const inv2 = await t.rpc(ids.counter.auth, 'get_invoice', { p_invoice_id: r2.invoice_id }, carlo)
+    expect(inv1.receipt_mode).toBe('internal')
+    expect(inv1.bill_no).toBe('C-000001')
+    expect(inv2.bill_no).toBe('C-000002')
+    expect(inv1.server).toBe('Ben Ramos')
+    expect(Number(inv1.pax)).toBe(3)
+    await t.rpc(ids.counter.auth, 'cash_move', { p_token: carlo, p_shift_id: shift.id, p_amount: 500 })
+    await t.rpc(ids.counter.auth, 'close_cash_shift', { p_token: carlo, p_shift_id: shift.id, p_counted_cash: 3854.53 })
+    const rep = await t.rpc(ids.counter.auth, 'get_shift_report', { p_shift_id: shift.id }, carlo)
+    expect(rep.shift_number).toBe(1)
+    expect(Number(rep.cash_drawer.cash_payments)).toBe(1354.43)
+    expect(Number(rep.cash_drawer.expected_cash)).toBe(3854.43)
+    expect(Number(rep.cash_drawer.difference)).toBe(0.1)
+    expect(Number(rep.sales_summary.gross_sales)).toBe(499 * 5)
+    expect(Number(rep.sales_summary.net_sales)).toBe(2352.43)
+    expect(Number(rep.sales_summary.discounts)).toBe(Number((499 - 356.43).toFixed(2)))
+    expect(Number(rep.by_method.gcash)).toBe(998)
+    // servers cannot print the shift report
+    await expect(t.rpc(ids.phone1.auth, 'get_shift_report', { p_shift_id: shift.id }, ben)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+})

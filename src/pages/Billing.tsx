@@ -31,6 +31,8 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
   const [booklet, setBooklet] = useState('')
   const [err, setErr] = useState<unknown>(null)
   const official = !!terminal?.invoice_printing_enabled && online
+  // Internal mode (v0.6): the POS is not BIR-registered; it prints an Order Summary, never an invoice.
+  const internal = (boot.data?.settings?.receipt_mode ?? 'internal') === 'internal'
 
   const prepare = async () => {
     try {
@@ -58,7 +60,7 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
         p_payments: payments.filter((p) => Number(p.amount) > 0).map((p) => ({ method: p.method, amount: Number(p.amount), reference_no: p.reference_no || null })),
         p_sc_pwd: scpwd, p_terminal_id: terminal?.id ?? null, p_manual_booklet_no: official ? null : booklet || null },
         { queueable: !official, label: `Settle table ${s.table_label}`, session_id: s.id, branch_id: auth.branchId! })
-      if (r.queued) { toast('Payment saved offline — booklet invoice recorded', 'info'); nav('/floor') }
+      if (r.queued) { toast('Payment saved offline — it syncs when the internet is back', 'info'); nav('/floor') }
       else { toast(`Change ${peso(r.result.change)}`, 'ok'); nav(`/invoice/${r.result.invoice_id}`) }
     } catch (e) { setErr(e) }
   }
@@ -136,13 +138,18 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
           ))}
         </div>}
 
-        {official ? <p className="text-emerald-300 text-sm mb-3">Official sales invoice will print from terminal {terminal.terminal_code}.</p> : (
+        {official ? <p className="text-emerald-300 text-sm mb-3">Official sales invoice will print from terminal {terminal.terminal_code}.</p>
+          : internal ? (
+          <Field label="Official receipt no. from the BIR booklet (optional)" hint="Prints an Order Summary — not an official receipt. Write the official receipt from the booklet as usual; typing its number here helps match the two.">
+            <input className={inputCls} value={booklet} onChange={(e) => setBooklet(e.target.value)} placeholder="e.g. 0001234" />
+          </Field>
+        ) : (
           <Field label="Manual booklet invoice no." hint={!terminal ? 'This device is not a registered POS terminal.' : !online ? 'Offline: official invoices need internet — use the booklet.' : 'Invoice printing is off until the BIR permit is approved.'}>
             <input className={inputCls} value={booklet} onChange={(e) => setBooklet(e.target.value)} placeholder="e.g. 0001234" />
           </Field>
         )}
         <ErrorBox error={err} />
-        <Button variant="ok" big className="w-full" disabled={paid < due || (!official && !booklet)} onClick={settle}>Settle {peso(due)}</Button>
+        <Button variant="ok" big className="w-full" disabled={paid < due || (!official && !internal && !booklet)} onClick={settle}>Settle {peso(due)}</Button>
         <p className="text-xs text-silver mt-2">Manager discount or comps need a manager PIN at order time.</p>
       </Card>
     </div>
@@ -163,6 +170,7 @@ export function InvoicePage() {
   const d = inv.data
   if (!d) return <ErrorBox error={inv.error ?? new Error('Loading…')} />
   const official = d.invoice.invoice_no != null
+  if (d.receipt_mode === 'internal' && !official) return <OrderSummary d={d} reprint={() => setReprint(true)} />
   return (
     <div>
       <div className="no-print flex flex-wrap gap-2 mb-4">
@@ -216,6 +224,60 @@ export function InvoicePage() {
   )
 }
 const R = ({ k, v }: { k: string; v: any }) => <div className="flex justify-between"><span>{k}</span><span>{Number(v ?? 0).toFixed(2)}</span></div>
+const money = (v: any) => Number(v ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const Dash = () => <div className="border-t border-dashed border-black my-1" />
+
+// Unofficial receipt for the customer (SPEC §15.5). Deliberately has no BIR invoice fields:
+// no "Sales Invoice"/"Official Receipt" title, no TIN, no VAT breakdown, no serial/permit numbers.
+function OrderSummary({ d, reprint }: { d: any; reprint: () => void }) {
+  const nav = useNavigate()
+  const lines = (d.lines ?? []).filter((l: any) => l.status === 'active')
+  const gross = lines.reduce((a: number, l: any) => a + Number(l.gross_amount), 0)
+  const disc = lines.reduce((a: number, l: any) => a + Number(l.discount_amount), 0)
+  const branch = (d.branch.name ?? '').replace(/^Golden (Korean BBQ|Baboy) — /, '').toUpperCase()
+  return (
+    <div>
+      <div className="no-print flex flex-wrap gap-2 mb-4">
+        <Button onClick={() => nav('/floor')}>← Floor</Button>
+        <Button variant="gold" onClick={() => window.print()}>Print</Button>
+        <Button onClick={reprint}>Reprint (marked REPRINT)</Button>
+      </div>
+      <div className="bg-white text-black rounded-lg p-4 w-fit mx-auto">
+        <div className="receipt w-[72mm] font-mono text-[11px] leading-snug">
+          {d.reprint && <div className="text-center font-bold">*** REPRINT ***</div>}
+          {d.invoice.status === 'voided' && <div className="text-center font-bold">*** VOID *** {d.invoice.void_reason}</div>}
+          <div className="text-center font-bold text-[13px]">GOLDEN KOREAN BBQ{branch ? ` – ${branch}` : ''}</div>
+          <div className="text-center">Unli Korean Grill{d.branch_phone ? ` · ${d.branch_phone}` : ''}</div>
+          <Dash />
+          <div className="text-center font-bold">ORDER SUMMARY</div>
+          <div className="text-center font-bold">*** NOT AN OFFICIAL RECEIPT ***</div>
+          <Dash />
+          <div className="flex justify-between"><span>Bill #: {d.bill_no}</span><span>Table: {d.table_label}</span></div>
+          <div className="flex justify-between"><span>{dateTime(d.invoice.issued_at)}</span><span>Pax: {d.pax}</span></div>
+          <div className="flex justify-between"><span>Server: {d.server ?? '—'}</span><span>Cashier: {d.cashier ?? '—'}</span></div>
+          <Dash />
+          {lines.map((l: any) => (
+            <div key={l.id} className="flex justify-between gap-2"><span>{l.name} x{Number(l.qty)}{Number(l.qty) > 1 ? ` @${money(l.unit_price)}` : ''}</span><span>{money(l.gross_amount)}</span></div>
+          ))}
+          <Dash />
+          <div className="flex justify-between"><span>Subtotal</span><span>{money(gross)}</span></div>
+          {lines.filter((l: any) => Number(l.discount_amount) > 0).map((l: any) => (
+            <div key={'d' + l.id} className="flex justify-between"><span>{l.discount_name} ({Number(l.qty)} pax)</span><span>-{money(l.discount_amount)}</span></div>
+          ))}
+          <div className="flex justify-between font-bold text-[13px]"><span>TOTAL</span><span>₱ {money(Number(d.invoice.total) || gross - disc)}</span></div>
+          {(d.payments ?? []).map((p: any) => (
+            <div key={p.id} className="flex justify-between"><span>{p.method.toUpperCase()}{p.reference_no ? ` ${p.reference_no}` : ''}</span><span>{money(p.tendered ?? p.amount)}</span></div>
+          ))}
+          {(d.payments ?? []).filter((p: any) => p.change > 0).map((p: any) => <div key={'c' + p.id} className="flex justify-between"><span>Change</span><span>{money(p.change)}</span></div>)}
+          <Dash />
+          <div className="text-center">Please ask for your official receipt.</div>
+          <div className="text-center">Thank you! 감사합니다</div>
+          <div className="text-center font-bold mt-1">*** NOT AN OFFICIAL RECEIPT ***</div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ───── Cashier shift and day close (§6.8) ─────
 export function ShiftPage() {
@@ -228,6 +290,7 @@ export function ShiftPage() {
   const [float, setFloat] = useState('2000')
   const [counted, setCounted] = useState('')
   const [xr, setXr] = useState<any>(null)
+  const [reportId, setReportId] = useState<string | null>(null)
   const [zr, setZr] = useState<any>(null)
   const [zDate, setZDate] = useState(boot.data?.business_date ?? manilaDate())
   return (
@@ -253,10 +316,11 @@ export function ShiftPage() {
               </div>
               <Field label="Counted cash in drawer"><input className={inputCls} inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value)} /></Field>
               <Button variant="gold" disabled={!counted} onClick={() => mutate('close_cash_shift', { p_token: auth.token, p_shift_id: shift.data.id, p_counted_cash: Number(counted) })
-                .then((r) => { setXr(r.result.totals); shift.refetch() }).catch((e) => toast(e.message, 'error'))}>Close shift · X-reading</Button>
+                .then((r) => { setXr(r.result.totals); setReportId(r.result.shift_id ?? shift.data.id); shift.refetch() }).catch((e) => toast(e.message, 'error'))}>Close shift · print report</Button>
             </>
           )}
-          {xr && <Reading title="X-reading" data={xr} />}
+          {reportId && <ShiftReport shiftId={reportId} />}
+          {xr && !reportId && <Reading title="X-reading" data={xr} />}
         </Card>
         <Card>
           <h3 className="font-bold mb-3">Day close · Z-reading</h3>
@@ -265,6 +329,47 @@ export function ShiftPage() {
             .then((r) => setZr(r.result)).catch((e) => toast(e.message, 'error'))}>Generate Z-reading</Button>
           {zr && <Reading title="Z-reading" data={zr} />}
         </Card>
+      </div>
+    </div>
+  )
+}
+
+// Shift report in the layout Taft prints today (SPEC §15.5): cash drawer + sales summary.
+function ShiftReport({ shiftId }: { shiftId: string }) {
+  const r = useRpc<any>('get_shift_report', { p_shift_id: shiftId })
+  const d = r.data
+  if (!d) return <ErrorBox error={r.error} />
+  const L = ({ k, v, b }: { k: string; v: any; b?: boolean }) => <div className={`flex justify-between ${b ? 'font-bold' : ''}`}><span>{k}</span><span>₱{money(v)}</span></div>
+  const METHOD: Record<string, string> = { cash: 'Cash', gcash: 'GCash', maya: 'Maya', card: 'Card', bank: 'Bank transfer' }
+  return (
+    <div className="mt-4">
+      <div className="no-print flex justify-end mb-2"><Button variant="gold" onClick={() => window.print()}>Print shift report</Button></div>
+      <div className="bg-white text-black rounded-lg p-4 w-fit mx-auto">
+        <div className="receipt w-[72mm] font-mono text-[11px] leading-snug">
+          <div className="text-center font-bold text-[13px]">Shift report</div>
+          <div>Shift number: {d.shift_number}</div>
+          <div>Store: {d.store}</div>
+          <div>POS: {d.pos}</div>
+          <Dash />
+          <div>Shift opened:</div><div className="flex justify-between"><span>{d.opened_by}</span><span>{dateTime(d.opened_at)}</span></div>
+          {d.closed_at && <><div>Shift closed:</div><div className="flex justify-between"><span>{d.closed_by}</span><span>{dateTime(d.closed_at)}</span></div></>}
+          <Dash />
+          <div className="text-center font-bold">Cash drawer</div>
+          <L k="Starting cash" v={d.cash_drawer.starting_cash} /><L k="Cash payments" v={d.cash_drawer.cash_payments} />
+          <L k="Cash refunds" v={d.cash_drawer.cash_refunds} /><L k="Paid in" v={d.cash_drawer.paid_in} /><L k="Paid out" v={d.cash_drawer.paid_out} />
+          <L k="Expected cash amount" v={d.cash_drawer.expected_cash} />
+          {d.cash_drawer.actual_cash != null && <><L k="Actual cash amount" v={d.cash_drawer.actual_cash} /><L k="Difference" v={d.cash_drawer.difference} b /></>}
+          <Dash />
+          <div className="text-center font-bold">Sales summary</div>
+          <L k="Gross sales" v={d.sales_summary.gross_sales} b /><L k="Refunds" v={d.sales_summary.refunds} />
+          <L k="Discounts" v={d.sales_summary.discounts} /><L k="Net sales" v={d.sales_summary.net_sales} b />
+          {Object.entries(d.by_method ?? {}).map(([m, v]) => <L key={m} k={METHOD[m] ?? m} v={v} />)}
+          <L k="VAT included" v={d.sales_summary.vat_included} />
+          <div className="flex justify-between"><span>Bills</span><span>{d.bills}{d.voided_bills ? ` (+${d.voided_bills} void)` : ''}</span></div>
+          <Dash />
+          <div className="text-right">{dateTime(d.printed_at)}</div>
+          <div className="text-center text-[9px]">Internal report — not a BIR reading</div>
+        </div>
       </div>
     </div>
   )

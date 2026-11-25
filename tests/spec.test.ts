@@ -230,7 +230,8 @@ describe('§6 POS', () => {
     await expectCode(openTable(server, '9', '2026-12-05 18:00', ids.unliPork, [{ discount_type_id: ids.managerDiscount, pax_count: 1 }]), 'NEEDS_MANAGER')
   })
 
-  it('6.7 invoices: booklet fallback, gap-free numbering only on the registered terminal, voids keep numbers, Z = sum', async () => {
+  it('6.7 BIR mode (if the POS is ever registered): booklet fallback, gap-free numbering on the registered terminal, voids keep numbers, Z = sum', async () => {
+    await t.db.query(`update branches set settings = settings || '{"receipt_mode":"bir"}' where id = $1`, [ids.candon])
     const server = await t.pin(ids.phone1, ids.server1)
     const cashier = await t.pin(ids.counter, ids.cashier)
     const settle = (s: string, opts: Record<string, unknown> = {}, device = ids.counter, token = cashier) =>
