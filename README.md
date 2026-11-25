@@ -81,7 +81,7 @@ There are 40 tests that run the real migrations and seed in PGlite (an in-memory
 | `0099_supabase_only.sql` | Grants, Realtime publication, pg_cron jobs, fixed production clock (always runs last) |
 | `supabase/seed.sql` | Demo/staging data (Candon from the spec + tiny Taft branch). **Not production data** |
 | `supabase/functions/` | `send-messages` (Semaphore SMS + Resend email), `push-fanout` (Web Push), `public-booking` (Turnstile) |
-| `src/lib/` | Backends (Supabase / local PGlite), offline outbox (Dexie), auth, i18n, hooks |
+| `src/lib/` | Supabase backend (staff token header), offline outbox (Dexie), auth and roles, i18n, hooks |
 | `src/pages/` | Floor, Session (refill / order / bill), Kitchen, Inventory, Reservations + public booking, Dashboard/Reports/Admin |
 
 ## Status against the spec
