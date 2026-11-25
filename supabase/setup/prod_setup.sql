@@ -1,8 +1,8 @@
 -- PROD starting data (SPEC v0.6 §15.5, §15.7). Real structure only: no demo staff, no PINs, no stock, no sales.
 -- Taft goes live first; Candon is set up now and its staff are added in Setup → People when hired.
 -- Run once on PROD. Safe to re-run: a branch that already exists is skipped.
--- Placeholders to finish in the app: addresses, registered business name/TIN, GCash number, add-on/drink list for Candon,
--- reorder and par levels, suppliers, set-meal recipes.
+-- Placeholders to finish in the app: Candon address details, registered business name/TIN, GCash number,
+-- reorder and par levels, suppliers, opening stock count. Candon add-ons and drinks copy Taft's until they change.
 
 create or replace function pg_temp.setup_branch(p jsonb) returns uuid language plpgsql as $$
 declare v_org uuid; v_branch uuid; v_cat jsonb; v_icat uuid; v_mcat uuid; v_item uuid; v_menu uuid; x jsonb; v_pkg uuid;
@@ -50,8 +50,8 @@ begin
   for v_cat in select * from jsonb_array_elements(p->'menu') loop
     insert into menu_categories(branch_id, name, sort_order) values (v_branch, v_cat->>'name', (v_cat->>'sort')::int) returning id into v_mcat;
     for x in select * from jsonb_array_elements(v_cat->'items') loop
-      insert into menu_items(branch_id, category_id, name, item_type, price, solo_price, priced_per_person, needs_kitchen, station, sort_order)
-      values (v_branch, v_mcat, x->>'name', x->>'type', (x->>'price')::numeric, (x->>'solo')::numeric, x->>'type' = 'unli_package',
+      insert into menu_items(branch_id, category_id, name, item_type, price, solo_price, choice_grams, priced_per_person, needs_kitchen, station, sort_order)
+      values (v_branch, v_mcat, x->>'name', x->>'type', (x->>'price')::numeric, (x->>'solo')::numeric, (x->>'choice')::numeric, x->>'type' = 'unli_package',
         coalesce((x->>'kitchen')::boolean, false), coalesce(x->>'station', 'kitchen'), coalesce((x->>'sort')::int, 0))
       returning id into v_menu;
       insert into menu_item_price_history(branch_id, menu_item_id, price) values (v_branch, v_menu, (x->>'price')::numeric);
@@ -124,7 +124,7 @@ create temporary table _cats as select $j$[
 ]$j$::jsonb j;
 
 select pg_temp.setup_branch(jsonb_build_object(
-  'code', 'TAFT', 'name', 'Golden Baboy — Taft', 'brand', 'Golden Baboy', 'address', 'Taft Avenue, Manila (to confirm)', 'phone', null,
+  'code', 'TAFT', 'name', 'Golden Baboy — Taft', 'brand', 'Golden Baboy', 'address', 'D''Student''s Place, Taft Avenue, Malate, 1004 Metro Manila', 'phone', '0976 136 2941',
   'open', '11:00', 'close', '23:00',
   'settings', '{"closing_time":"23:00","unli_to":"23:00","last_unli_seating_time":"21:30","closed_weekdays":[0]}'::jsonb,
   'tables', '[{"seats":4,"count":16},{"seats":6,"count":4}]'::jsonb,
@@ -134,11 +134,11 @@ select pg_temp.setup_branch(jsonb_build_object(
       {"name":"Unlimited Korean Grill","type":"unli_package","price":649,"solo":749,"sort":1,
        "meats":["Samgyupsal","Yangyum Samgyupsal","Woo Samgyupsal (beef)","Yangyum Woo Samgyupsal (beef)"]}]},
     {"name":"Sets","sort":2,"items":[
-      {"name":"Solo Set (150 g meat)","type":"set_meal","price":350,"kitchen":true,"sort":1},
-      {"name":"Bento Set (150 g meat)","type":"set_meal","price":270,"kitchen":true,"sort":2}]},
+      {"name":"Solo Set (150 g meat)","type":"set_meal","price":350,"choice":150,"kitchen":true,"sort":1},
+      {"name":"Bento Set (150 g meat)","type":"set_meal","price":270,"choice":150,"kitchen":true,"sort":2}]},
     {"name":"Additional Orders","sort":3,"items":[
       {"name":"1 kg Kimchi","type":"add_on","price":200,"kitchen":true,"station":"dispatch","deducts":["Kimchi",1000],"sort":1},
-      {"name":"500 g Meat","type":"add_on","price":300,"kitchen":true,"station":"dispatch","sort":2},
+      {"name":"500 g Meat","type":"add_on","price":300,"choice":500,"kitchen":true,"station":"dispatch","sort":2},
       {"name":"Steamed Egg","type":"add_on","price":60,"kitchen":true,"station":"kitchen","deducts":["Steamed Egg",50],"sort":3},
       {"name":"Free ice cream (on billing out)","type":"add_on","price":0,"kitchen":true,"station":"dispatch","deducts":["Ice cream",1],"sort":4}]},
     {"name":"Drinks","sort":4,"items":[
@@ -161,8 +161,15 @@ select pg_temp.setup_branch(jsonb_build_object(
        "meats":["Samgyupsal","Yangyum Samgyupsal","Woo Samgyupsal (beef)","Yangyum Woo Samgyupsal (beef)"]}]},
     {"name":"Lunch (11 AM – 3 PM)","sort":2,"items":[
       {"name":"Bowl","type":"set_meal","price":149,"kitchen":true,"sort":1},
-      {"name":"Bento","type":"set_meal","price":270,"kitchen":true,"sort":2},
-      {"name":"Solo Set","type":"set_meal","price":350,"kitchen":true,"sort":3}]},
+      {"name":"Bento (150 g meat)","type":"set_meal","price":270,"choice":150,"kitchen":true,"sort":2},
+      {"name":"Solo Set (150 g meat)","type":"set_meal","price":350,"choice":150,"kitchen":true,"sort":3}]},
+    {"name":"Additional Orders","sort":3,"items":[
+      {"name":"1 kg Kimchi","type":"add_on","price":200,"kitchen":true,"station":"dispatch","deducts":["Kimchi",1000],"sort":1},
+      {"name":"500 g Meat","type":"add_on","price":300,"choice":500,"kitchen":true,"station":"dispatch","sort":2},
+      {"name":"Steamed Egg","type":"add_on","price":60,"kitchen":true,"station":"kitchen","deducts":["Steamed Egg",50],"sort":3},
+      {"name":"Free ice cream (on billing out)","type":"add_on","price":0,"kitchen":true,"station":"dispatch","deducts":["Ice cream",1],"sort":4}]},
+    {"name":"Drinks","sort":4,"items":[
+      {"name":"Soft drinks","type":"drink","price":60,"station":"dispatch","deducts":["Soft drinks",1],"sort":1}]},
     {"name":"Fees","sort":5,"items":[
       {"name":"Leftover fee","type":"fee","price":200,"sort":1},
       {"name":"Overtime fee (past 2 hours)","type":"fee","price":200,"sort":2}]}
@@ -179,7 +186,9 @@ begin
   insert into user_branch_roles(user_id, branch_id, role) select v_id, v_branch, r from unnest(p_roles) r on conflict do nothing;
 end $$;
 
--- JD: owner of both branches (owner can do everything a manager can).
+-- Admin (system admin, both branches) and JD (owner of both branches; can do everything a manager can).
+select pg_temp.person('Kyla (Admin)', 'TAFT', array['admin'], 'keiii.businessacc3@gmail.com');
+select pg_temp.person('Kyla (Admin)', 'CANDON', array['admin'], 'keiii.businessacc3@gmail.com');
 select pg_temp.person('JD (Jose Wilfredo John Dizon)', 'TAFT', array['owner'], 'johndizonbusiness@gmail.com');
 select pg_temp.person('JD (Jose Wilfredo John Dizon)', 'CANDON', array['owner'], 'johndizonbusiness@gmail.com');
 -- Taft team (SPEC §15.5)
@@ -190,3 +199,4 @@ select pg_temp.person('Mary Rose Guevarra', 'TAFT', array['dispatch']);
 select pg_temp.person('Annalyn Roxas', 'TAFT', array['cashier']);           -- Assistant Restaurant Manager; cashier rights only (§15.7)
 select pg_temp.person('Jenny', 'TAFT', array['server']);
 select pg_temp.person('Elbe', 'TAFT', array['server']);
+select pg_temp.person('Zion', 'TAFT', array['manager']);                    -- manager; gets an email login when invited

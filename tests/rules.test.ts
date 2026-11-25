@@ -144,3 +144,31 @@ describe('internal receipts and shift report', () => {
     await expect(t.rpc(ids.phone1.auth, 'get_shift_report', { p_shift_id: shift.id }, ben)).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 })
+
+describe('meat choice', () => {
+  it('a Solo Set takes 150 g of the chosen meat off stock and names it on the kitchen ticket; no choice is refused', async () => {
+    const ben = await t.pin(ids.phone1, ids.server1)
+    await t.clock(manila('2026-12-05 12:00'))
+    const tid = (await t.one<{ id: string }>(`select id from dining_tables where branch_id = $1 and label = '6'`, [ids.candon])).id
+    const sid = uuid()
+    await t.rpc(ids.phone1.auth, 'open_session', { p_client_uuid: uuid(), p_token: ben, p_branch: ids.candon, p_session_id: sid,
+      p_table_ids: [tid], p_package_id: null, p_pax: [] })
+    const soloSet = '80000000-0000-0000-0000-000000000015'
+    const ysam = (await t.one<{ id: string }>(`select id from items where branch_id = $1 and name = 'Y-Sam w/ sauce'`, [ids.candon])).id
+    const before = Number((await t.one<{ q: string }>('select qty_on_hand q from item_stock_levels where item_id = $1', [ysam])).q)
+    await expect(t.rpc(ids.phone1.auth, 'post_order_lines', { p_client_uuid: uuid(), p_token: ben, p_session_id: sid,
+      p_lines: [{ menu_item_id: soloSet, qty: 1 }] })).rejects.toMatchObject({ code: 'CHOICE_REQUIRED' })
+    await t.rpc(ids.phone1.auth, 'post_order_lines', { p_client_uuid: uuid(), p_token: ben, p_session_id: sid,
+      p_lines: [{ menu_item_id: soloSet, qty: 2, choice_item_id: ysam }] })
+    const after = Number((await t.one<{ q: string }>('select qty_on_hand q from item_stock_levels where item_id = $1', [ysam])).q)
+    expect(before - after).toBe(300)
+    const label = (await t.one<{ label: string }>(`select label from kitchen_ticket_lines where label like 'Solo Set%'`)).label
+    expect(label).toBe('Solo Set — Y-Sam w/ sauce')
+    const s = await t.rpc(ids.phone1.auth, 'get_session', { p_session_id: sid })
+    expect(s.lines.find((l: any) => l.name === 'Solo Set').choice_name).toBe('Y-Sam w/ sauce')
+    // voiding before it is served puts the meat back
+    const line = s.lines.find((l: any) => l.name === 'Solo Set').id
+    await t.rpc(ids.phone1.auth, 'void_order_line', { p_token: ben, p_line_id: line, p_reason: 'wrong order' })
+    expect(Number((await t.one<{ q: string }>('select qty_on_hand q from item_stock_levels where item_id = $1', [ysam])).q)).toBe(before)
+  })
+})

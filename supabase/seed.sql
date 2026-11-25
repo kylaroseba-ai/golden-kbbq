@@ -292,4 +292,9 @@ update branches set settings = settings || '{"closing_time":"23:00","unli_to":"2
 -- GCash for reservation fees (TEST placeholder; JD enters the real number in Setup)
 update branches set settings = settings || '{"gcash_number":"0917 000 0000","gcash_name":"TEST ONLY"}' where id = '10000000-0000-0000-0000-000000000001';
 
+-- Sets with a chosen meat: 150 g of the meat the guest picks (SPEC §15.5)
+update menu_items set choice_grams = 150 where id in ('80000000-0000-0000-0000-000000000014','80000000-0000-0000-0000-000000000015');
+delete from portion_rules where menu_item_id in ('80000000-0000-0000-0000-000000000014','80000000-0000-0000-0000-000000000015')
+  and item_id in (select id from items where is_meat);
+
 drop table _i; drop table _r;

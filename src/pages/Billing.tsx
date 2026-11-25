@@ -100,7 +100,7 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
       <Card>
         <h3 className="font-bold mb-3">Bill</h3>
         {(s.lines ?? []).filter((l: any) => l.status === 'active').map((l: any) => (
-          <div key={l.id} className="flex justify-between text-sm py-1"><span>{Number(l.qty)}× {l.name}{l.discount_name && l.discount_name !== 'Regular' ? ` · ${l.discount_name}` : ''}</span><span>{peso(l.net_amount)}</span></div>
+          <div key={l.id} className="flex justify-between text-sm py-1"><span>{Number(l.qty)}× {l.name}{l.choice_name ? ` — ${l.choice_name}` : ''}{l.discount_name && l.discount_name !== 'Regular' ? ` · ${l.discount_name}` : ''}</span><span>{peso(l.net_amount)}</span></div>
         ))}
         <div className="border-t border-charcoal-600 mt-2 pt-2 space-y-1 text-sm">
           <Row k="Subtotal" v={peso(totals.subtotal)} /><Row k="Discounts" v={`− ${peso(totals.discount_total)}`} />
@@ -257,7 +257,7 @@ function OrderSummary({ d, reprint }: { d: any; reprint: () => void }) {
           <div className="flex justify-between"><span>Server: {d.server ?? '—'}</span><span>Cashier: {d.cashier ?? '—'}</span></div>
           <Dash />
           {lines.map((l: any) => (
-            <div key={l.id} className="flex justify-between gap-2"><span>{l.name} x{Number(l.qty)}{Number(l.qty) > 1 ? ` @${money(l.unit_price)}` : ''}</span><span>{money(l.gross_amount)}</span></div>
+            <div key={l.id} className="flex justify-between gap-2"><span>{l.name}{l.choice_name ? ` (${l.choice_name})` : ''} x{Number(l.qty)}{Number(l.qty) > 1 ? ` @${money(l.unit_price)}` : ''}</span><span>{money(l.gross_amount)}</span></div>
           ))}
           <Dash />
           <div className="flex justify-between"><span>Subtotal</span><span>{money(gross)}</span></div>
