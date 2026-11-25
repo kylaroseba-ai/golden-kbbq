@@ -1,54 +1,44 @@
 # Golden Korean BBQ — Restaurant System (MVP)
 
-Inventory + in-house POS + reservations PWA for the Candon City branch, built from **SPEC v0.3**.
+Inventory + in-house POS + reservations PWA for Golden Baboy Taft and Golden Korean BBQ Candon, built from **SPEC v0.6** (`docs/SPEC.md`).
 React + TypeScript + Vite PWA on Supabase (Postgres, RLS, Realtime, Edge Functions, pg_cron).
+All business rules live in Postgres functions (`supabase/migrations`).
 
-All business rules live in Postgres functions (`supabase/migrations`). The same SQL runs:
-- on **Supabase** in production, and
-- **in the browser** (PGlite) for the demo and in the tests. No server is needed to try it.
+## Environments
 
-## Where it lives
+| | Supabase project | Who connects | Data |
+|---|---|---|---|
+| **PROD** | `uhtakdvizeoquyvovusn` "Golden Korean BBQ" (Singapore) | the live site only | Taft and Candon, real data only |
+| **TEST** | `infeezvecfqpugwtljjd` "Golden Korean BBQ – Test" (Singapore, free) | this laptop (`.env.local`), Vercel preview builds | demo branches and test data |
 
-| | |
-|---|---|
-| Code | https://github.com/kylaroseba-ai/golden-kbbq (private) |
-| Live demo | https://golden-kbbq.vercel.app (demo mode: data stays in each visitor's browser) |
-| Database | Supabase project `uhtakdvizeoquyvovusn` ("Golden Korean BBQ", Singapore · ap-southeast-1): all migrations applied, no demo data |
+- Code: https://github.com/kylaroseba-ai/golden-kbbq (private). Live site: https://golden-kbbq.vercel.app
+- Vercel environment variables: **Preview** → TEST. **Production** → PROD.
+- Database changes always go **TEST first → tests pass → PROD**, after closing time.
+- The Supabase CLI stays linked to TEST (`supabase/.temp/project-ref`). To change PROD, link it, push, and link back to TEST straight away.
+- After a migration that adds functions, add a new `*_grants_supabase_only.sql` migration (see `0104`).
 
-**To go live on Supabase:**
-1. Create the staff/device logins in Supabase Auth.
-2. Add the Candon setup data (§13.4).
-3. In Vercel → Settings → Environment Variables, set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
-4. Redeploy.
-
-**Auto-deploy on every push:** in Vercel → Account Settings → Authentication, connect GitHub. Then run `vercel git connect`.
-
-## Try the demo
+## Run on this laptop (against TEST)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Pick a demo device or a personal login. The demo database rebuilds itself whenever the SQL changes. The demo bar at the top lets you:
-- move the clock (lunch 12 PM, unli 6 PM, 7:16 PM after the refill cutoff),
-- simulate this device going offline,
-- reset all demo data.
+`.env.local` (git-ignored) points at TEST. Test sign-ins for TEST are in `TEST_ACCOUNTS.local` (git-ignored, generated). Staff PINs of the demo seed are listed at the top of `supabase/seed.sql`.
 
-**Each browser tab is its own device.** Open a server phone in one tab and the kitchen tablet in another. Refill rounds tapped in the first appear in the second.
+## Accounts and roles
 
-| Demo device / login | Staff PINs (test values only) |
-|---|---|
-| Front counter (registered POS terminal T1) | Carlo 2222 (cashier) · Mara 1111 (manager) |
-| Server phone 1 / 2 | Ben 3333 · Liza 4444 (servers) |
-| Kitchen tablet | Rico 5555 (kitchen) |
-| Owner (JD), Branch manager (Mara) | personal logins, no PIN |
+- **Owner, manager, admin:** email + password. A manager or the owner invites them from **Setup → People** (`invite-user` Edge Function). They choose their own password from the email link. Public sign-up is off.
+- **Shared devices** (counter tablet, server phones, kitchen and dispatch screens): a manager signs in on the device once and taps **Setup → Devices → Register this device** (`register-device` Edge Function). Staff then tap their name and enter their 4–6 digit PIN.
+- **Roles:** owner, admin, manager, cashier, server, kitchen, dispatch, utility (time clock only). A person can hold several roles. The database enforces what each role can see (§3.1): staff never get the dashboard, reports or costs.
 
-The system admin and the Taft test-branch logins are not shown on the sign-in screen. Open `/?staff=all` to see them in the demo. In production there is only an email and password form.
+## Setting up PROD
 
-Staff land on **Time clock** after their PIN: time in, start/end break, time out, and their schedule for the week. Managers see **Staff & shifts**: a live board (scheduled, working, on break, late, absent) with a timeline, a weekly schedule editor, and corrections for missed time-outs. The **Attendance** report (Reports) gives scheduled vs worked hours and lateness for payroll.
-
-Invoice printing on T1 is **off** in the seed (BIR permit pending), so settling asks for the manual booklet number. To try official invoice numbering, turn it on for the terminal (`pos_terminals.invoice_printing_enabled`). The tests cover that path.
+1. `supabase/setup/prod_setup.sql` loads the real structure (Taft and Candon branches, tables, menu and prices, discounts, refill items, the Taft team without PINs). It is safe to re-run.
+2. Invite JD and the admin by email; register devices; managers set PINs in Setup → People.
+3. Fill in the placeholders in Setup: addresses, business name/TIN, GCash number, reorder levels, suppliers, opening stock count.
+4. Edge Function secrets for messages: `SEMAPHORE_API_KEY`, `SEMAPHORE_SENDER`, `RESEND_API_KEY`, `EMAIL_FROM`, `TURNSTILE_SECRET_KEY`, `VAPID_*`; then deploy `send-messages push-fanout public-booking` and run `supabase/setup/edge_function_cron.sql`.
+5. Upgrade PROD to Supabase Pro before real service (no pausing, daily backups).
 
 ## Tests
 
@@ -56,7 +46,7 @@ Invoice printing on T1 is **off** in the seed (BIR permit pending), so settling 
 npm test
 ```
 
-There are 26 tests that run the real migrations and seed in PGlite. They cover the spec's acceptance criteria and the §14.1 must-pass list:
+There are 40 tests that run the real migrations and seed in PGlite (an in-memory Postgres; the app itself always uses Supabase). They cover the spec's acceptance criteria and the §14.1 must-pass list:
 - delivery costing;
 - prep run;
 - low-stock alert de-duplication;
@@ -93,34 +83,6 @@ There are 26 tests that run the real migrations and seed in PGlite. They cover t
 | `supabase/functions/` | `send-messages` (Semaphore SMS + Resend email), `push-fanout` (Web Push), `public-booking` (Turnstile) |
 | `src/lib/` | Backends (Supabase / local PGlite), offline outbox (Dexie), auth, i18n, hooks |
 | `src/pages/` | Floor, Session (refill / order / bill), Kitchen, Inventory, Reservations + public booking, Dashboard/Reports/Admin |
-
-## Production setup (Week 0 checklist)
-
-All accounts belong to JD's business email (§9.1).
-1. Create a **paid** Supabase project. Free projects pause when idle.
-2. Run the migrations with `supabase link --project-ref <ref>`, then `supabase db push`. Do **not** load `seed.sql` into production. It is for staging/testing.
-3. **Accounts.** In Supabase Auth, create:
-   - one email/password user per shared device (counter, each server phone, kitchen tablet);
-   - personal logins for JD, the manager and the admin.
-
-   Then insert matching rows in `devices` (`auth_user_id`) and `profiles` (`auth_user_id` for personal logins), and add `user_branch_roles`. Set staff PINs from Admin → Staff on a shared device.
-4. Edge Function secrets:
-   - `SEMAPHORE_API_KEY`, `SEMAPHORE_SENDER`;
-   - `RESEND_API_KEY`, `EMAIL_FROM`;
-   - `TURNSTILE_SECRET_KEY`;
-   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
-
-   Deploy them with `supabase functions deploy send-messages push-fanout public-booking`.
-5. Vault secrets `project_url` and `service_role_key` (used by the cron jobs in `0007`).
-6. Frontend: deploy `dist/` to Vercel or Cloudflare Pages with `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` and `VITE_TURNSTILE_SITE_KEY`.
-7. Fill in the real Candon data per §13.4:
-   - items and levels;
-   - menu, portions and package cuts;
-   - suppliers;
-   - tables;
-   - BIR header fields on `branches`;
-   - the terminal record;
-   - the opening count.
 
 ## Status against the spec
 
