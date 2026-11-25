@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { getBackend } from '../lib/backend'
-import { useOnline, useRpc } from '../lib/hooks'
+import { deviceNow, useOnline, useRpc } from '../lib/hooks'
 import { mutate, uuid } from '../lib/outbox'
 import { dateTime, manilaDate, peso } from '../lib/format'
 import { Button, Card, ErrorBox, Field, PageHeader, inputCls, useManagerPin, useToast } from '../components/ui'
@@ -24,6 +24,7 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
   const nav = useNavigate()
   const online = useOnline()
   const terminal = useTerminal()
+  const boot = useRpc<any>('get_bootstrap', { p_branch: auth.branchId }, { cache: true, staleTime: 60_000 })
   const [totals, setTotals] = useState<any>(null)
   const [payments, setPayments] = useState<{ method: string; amount: string; reference_no: string }[]>([{ method: 'cash', amount: '', reference_no: '' }])
   const [scpwd, setScpwd] = useState<{ kind: string; full_name: string; id_number: string }[]>([])
@@ -36,7 +37,12 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
       const b = await getBackend()
       const r = await b.rpc('preview_bill', { p_session_id: s.id })
       setTotals(r)
-      setPayments([{ method: 'cash', amount: String(r.total), reference_no: '' }])
+      // a reservation fee paid by GCash is already part of the payment; the cashier collects the rest
+      const fee = Number(s.reservation_fee?.amount ?? 0)
+      setPayments(fee > 0
+        ? [{ method: 'gcash', amount: String(Math.min(fee, Number(r.total))), reference_no: `Reservation fee ${s.reservation_fee.code} ${s.reservation_fee.ref ?? ''}`.trim() },
+           ...(Number(r.total) > fee ? [{ method: 'cash', amount: (Number(r.total) - fee).toFixed(2), reference_no: '' }] : [])]
+        : [{ method: 'cash', amount: String(r.total), reference_no: '' }])
       setScpwd(Array.from({ length: Number(r.sc_pwd_pax) }, () => ({ kind: 'sc', full_name: '', id_number: '' })))
     } catch (e) { setErr(e) }
   }
@@ -63,8 +69,18 @@ export function Billing({ s, compact }: { s: any; compact?: boolean }) {
 
   if (!totals) {
     const est = (s.lines ?? []).filter((l: any) => l.status === 'active').reduce((a: number, l: any) => a + Number(l.net_amount), 0)
+    const overMin = s.timer_ends_at ? Math.floor((deviceNow().getTime() - new Date(s.timer_ends_at).getTime()) / 60000) : 0
+    const overtimeItem = (boot.data?.menu_items ?? []).find((m: any) => m.item_type === 'fee' && /overtime/i.test(m.name) && m.is_active)
+    const hasOvertime = (s.lines ?? []).some((l: any) => l.status === 'active' && l.menu_item_id === overtimeItem?.id)
     return (
       <Card>
+        {overMin > 0 && overtimeItem && !hasOvertime && (
+          <div className="rounded-xl bg-warn-bg text-warn p-3 mb-4 text-sm flex flex-wrap items-center gap-3">
+            <span className="flex-1">This table is {overMin} min past the 2-hour limit. Overtime fee: {peso(overtimeItem.price)} per table.</span>
+            <Button onClick={() => mutate('post_order_lines', { p_client_uuid: uuid(), p_token: auth.token, p_session_id: s.id, p_lines: [{ menu_item_id: overtimeItem.id, qty: 1 }] },
+              { queueable: true, label: 'Overtime fee', session_id: s.id, branch_id: auth.branchId! }).then(() => toast('Overtime fee added', 'ok')).catch((e) => toast(e.message, 'error'))}>Add overtime fee</Button>
+          </div>)}
+        {s.reservation_fee && <p className="text-sm text-ok mb-3">Reservation fee {peso(s.reservation_fee.amount)} already paid by GCash (ref {s.reservation_fee.ref}). It is taken off at payment.</p>}
         <p className="mb-1 text-silver">Running total</p>
         <p className="text-4xl font-black mb-4">{peso(est)}</p>
         <p className="text-sm text-silver mb-4">Billing out locks the table: no more refills or orders unless you reopen it.</p>

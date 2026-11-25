@@ -205,12 +205,12 @@ insert into discount_types(id, branch_id, name, kind, value, requires_manager_pi
  ('90000000-0000-0000-0000-000000000006','10000000-0000-0000-0000-000000000001','Employee / Birthday','percent',0.30,false,false,6),
  ('90000000-0000-0000-0000-000000000007','10000000-0000-0000-0000-000000000001','Manager discount','percent',0.10,true,false,7);
 
--- ───── Tables: 20 × 4 seats ≈ 80 seats (layout to be confirmed) ─────
+-- ───── Tables: Candon has 21 tables, 108 seats (9 × 4-seaters, 12 × 6-seaters) — table 21 and seat counts set below ─────
 insert into dining_tables(branch_id, label, seats, zone, sort_order)
 select '10000000-0000-0000-0000-000000000001', n::text, 4, case when n <= 10 then 'Main' else 'Side' end, n from generate_series(1, 20) n;
 
 insert into reservation_slots_config(branch_id, weekday, open_time, close_time, slot_minutes, max_covers_per_slot)
-select '10000000-0000-0000-0000-000000000001', d, '11:00', '22:00', 30, 80 from generate_series(0, 6) d;
+select '10000000-0000-0000-0000-000000000001', d, '11:00', '22:00', 30, 108 from generate_series(0, 6) d;
 
 insert into message_templates(branch_id, channel, event, subject, body) values
  ('10000000-0000-0000-0000-000000000001','sms','confirmed',null,'Golden Korean BBQ: Hi {name}, your table for {party} on {date} at {time} is confirmed. Ref {code}. See you!'),
@@ -261,5 +261,35 @@ from generate_series(0, 6) d,
              ('20000000-0000-0000-0000-000000000005', '14:00', '23:00', 'Server'),
              ('20000000-0000-0000-0000-000000000006', '15:00', '23:00', 'Server')) v(uid, s, e, pos)
 where not (v.uid = '20000000-0000-0000-0000-000000000006' and d = 3);   -- Liza's rest day
+
+-- ───── v0.6 confirmed rules (SPEC §15.5, §15.7) ─────
+-- Tables: 1–9 four-seaters, 10–21 six-seaters (108 seats)
+insert into dining_tables(branch_id, label, seats, zone, sort_order) values ('10000000-0000-0000-0000-000000000001', '21', 6, 'Side', 21);
+update dining_tables set seats = case when label::int <= 9 then 4 else 6 end where branch_id = '10000000-0000-0000-0000-000000000001';
+-- Portions per plate: meat with sauce 120 g, meat without sauce 80 g, side dishes 50 g
+update items set grams_per_plate = case when is_meat and name ilike '%w/ sauce%' then 120 when is_meat then 80 else 50 end
+ where branch_id = '10000000-0000-0000-0000-000000000001' and is_refillable;
+-- Stations: dispatch prepares and plates meat and side dishes; the kitchen cooks
+update items set station = case when name in ('Steam Egg') then 'kitchen' else 'dispatch' end where is_refillable;
+update menu_items set station = case when item_type in ('drink') or name ilike '%cheese%' then 'dispatch' else 'kitchen' end;
+-- Solo diner (one guest at an unli table)
+update menu_items set solo_price = 599 where id = '80000000-0000-0000-0000-000000000001';
+update menu_items set solo_price = 699 where id = '80000000-0000-0000-0000-000000000002';
+insert into menu_items(id, branch_id, category_id, name, item_type, price, priced_per_person, needs_kitchen, sort_order) values
+ ('80000000-0000-0000-0000-000000000042','10000000-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000005','Overtime fee (past 2 hours)','fee',200,false,false,2);
+insert into menu_item_price_history(branch_id, menu_item_id, price) values ('10000000-0000-0000-0000-000000000001','80000000-0000-0000-0000-000000000042',200);
+-- Discounts: Kids by height, Athlete 20 %, Birthday 50 % (3 full-paying adults) or free (7), one celebrant per table
+update discount_types set name = 'Kids 3 ft to under 4 ft', conditions = 'Half price' where id = '90000000-0000-0000-0000-000000000004';
+update discount_types set conditions = 'Valid athlete ID' where id = '90000000-0000-0000-0000-000000000005';
+update discount_types set name = 'Birthday 50% (3+ full-paying adults)', value = 0.50, min_full_paying = 3, max_per_session = 1,
+  conditions = 'Valid ID; once during birth month; not combinable' where id = '90000000-0000-0000-0000-000000000006';
+insert into discount_types(id, branch_id, name, kind, value, requires_manager_pin, requires_id_record, sort_order, min_full_paying, max_per_session, conditions) values
+ ('90000000-0000-0000-0000-000000000008','10000000-0000-0000-0000-000000000001','Kids under 3 ft','percent',1.00,false,false,4,null,null,'Free'),
+ ('90000000-0000-0000-0000-000000000009','10000000-0000-0000-0000-000000000001','Birthday free (7+ full-paying adults)','percent',1.00,false,false,6,7,1,'Valid ID; once during birth month; not combinable');
+-- Taft test branch: 11 AM – 11 PM, closed Sundays, last seating 9:30 PM
+update branches set settings = settings || '{"closing_time":"23:00","unli_to":"23:00","last_unli_seating_time":"21:30","closed_weekdays":[0]}'
+ where id = '10000000-0000-0000-0000-000000000002';
+-- GCash for reservation fees (TEST placeholder; JD enters the real number in Setup)
+update branches set settings = settings || '{"gcash_number":"0917 000 0000","gcash_name":"TEST ONLY"}' where id = '10000000-0000-0000-0000-000000000001';
 
 drop table _i; drop table _r;

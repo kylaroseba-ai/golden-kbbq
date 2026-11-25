@@ -13,7 +13,7 @@ const NAV: NavItem[] = [
   { to: '/dashboard', key: 'dashboard', label: 'Dashboard', icon: '◧', roles: ['owner', 'manager'], group: 'Overview' },
   { to: '/time', key: 'time', label: 'Time clock', icon: '◷', roles: ['server', 'cashier', 'kitchen', 'utility', 'manager'], group: 'Overview' },
   { to: '/floor', key: 'floor', label: 'Tables & POS', icon: '▦', roles: ['server', 'cashier', 'manager', 'owner'], group: 'Service' },
-  { to: '/kitchen', key: 'kitchen', label: 'Kitchen', icon: '♨', roles: ['kitchen', 'manager'], badge: 'kitchen', group: 'Service' },
+  { to: '/kitchen', key: 'kitchen', label: 'Kitchen / Dispatch', icon: '♨', roles: ['kitchen', 'manager'], badge: 'kitchen', group: 'Service' },
   { to: '/reservations', key: 'reservations', label: 'Reservations', icon: '☷', roles: ['cashier', 'manager', 'owner'], badge: 'reservations', group: 'Service' },
   { to: '/shift', key: 'shift', label: 'Cashier shift', icon: '₱', roles: ['cashier', 'manager'], group: 'Service' },
   { to: '/stock', key: 'stock', label: 'Live stock', icon: '▤', roles: 'all', badge: 'stock', group: 'Inventory' },
