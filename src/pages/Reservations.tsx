@@ -137,13 +137,12 @@ export function BookPage() {
   const submit = async () => {
     setErr('')
     try {
-      const b = await getBackend()
       const booking = { ...form, date, time: slot, party_size: party, package_interest: interest }
-      // Production: the Edge Function verifies Cloudflare Turnstile, then creates the booking.
-      const r = b.kind === 'supabase'
-        ? await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-booking`, { method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ branch_code: branchCode, booking, turnstile_token: (window as any).turnstileToken }) }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.message); return j })
-        : await b.rpc('create_public_reservation', { p_branch_code: branchCode, p_booking: booking })
+      // The Edge Function verifies Cloudflare Turnstile, then creates the booking.
+      const r = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-booking`, { method: 'POST',
+        headers: { 'content-type': 'application/json', apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? '' },
+        body: JSON.stringify({ branch_code: branchCode, booking, turnstile_token: (window as any).turnstileToken }) })
+        .then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.message); return j })
       setDone(r)
     } catch (e) { setErr((e as Error).message) }
   }

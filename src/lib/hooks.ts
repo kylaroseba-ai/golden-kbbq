@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query'
-import { getBackend, isOfflineError } from './backend'
+import { getBackend, getStaffToken, isOfflineError } from './backend'
 import { cacheGet, cacheSet } from './outbox'
 
 /** Read RPC with TanStack Query. Falls back to the last cached copy when offline. */
 export function useRpc<T = any>(name: string, args: Record<string, unknown>, opts: Partial<UseQueryOptions<T>> & { cache?: boolean } = {}) {
-  const key = [name, args]
+  // The staff member is part of the key: on a shared device each person sees only what their role allows.
+  const key = [name, args, getStaffToken()]
   return useQuery<T>({
     queryKey: key,
     queryFn: async () => {

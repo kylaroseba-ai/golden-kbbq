@@ -55,8 +55,10 @@ export async function makeDb() {
   const types: Record<string, ArgTypes> = {}
   for (const r of sig.rows) { types[r.name] ??= {}; if (r.argname) types[r.name][r.argname] = r.argtype }
 
-  async function rpc<T = any>(authUid: string | null, name: string, args: Record<string, unknown> = {}): Promise<T> {
+  // staffToken plays the role of the x-staff-token header the app sends from shared devices.
+  async function rpc<T = any>(authUid: string | null, name: string, args: Record<string, unknown> = {}, staffToken?: string): Promise<T> {
     await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [authUid ?? ''])
+    await db.query(`select set_config('request.headers', $1, false)`, [staffToken ? JSON.stringify({ 'x-staff-token': staffToken }) : ''])
     const fnTypes = types[name] ?? {}
     // personal logins (owner/manager/admin) act without a staff token
     if ('p_token' in fnTypes && !('p_token' in args)) args = { ...args, p_token: null }

@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { isManager, useAuth } from '../lib/auth'
+import { DevicesAdmin, PeopleAdmin } from './SetupPeople'
 import { deviceNow, useRpc } from '../lib/hooks'
 import { flushOutbox, localDb, mutate } from '../lib/outbox'
 import { dateTime, manilaDate, peso, qty, time } from '../lib/format'
-import { LANGUAGES } from '../lib/i18n'
 import { Avatar, Button, Card, CardTitle, Empty, ErrorBox, Field, LevelBar, Modal, PageHeader, Pill, Stat, StatusChip, inputCls, useToast } from '../components/ui'
 
 // ───── 8.1 Owner dashboard ─────
@@ -216,16 +216,17 @@ export function SyncPage() {
 // ───── Admin: items, menu, tables, staff PINs, devices, settings ─────
 export function AdminPage() {
   const auth = useAuth()
-  const [tab, setTab] = useState<'items' | 'menu' | 'tables' | 'staff' | 'settings'>('items')
+  const [tab, setTab] = useState<'people' | 'devices' | 'items' | 'menu' | 'tables' | 'settings'>('people')
   return (
     <div>
-      <PageHeader title="Admin" />
+      <PageHeader eyebrow="Back office" title="Setup" />
       <div className="flex flex-wrap gap-2 mb-4">
-        {(['items', 'menu', 'tables', 'staff', 'settings'] as const).map((t) => (
+        {(['people', 'devices', 'items', 'menu', 'tables', 'settings'] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`min-h-11 px-4 rounded-xl capitalize ${tab === t ? 'bg-gold-400 text-charcoal-950 font-semibold' : 'bg-charcoal-800'}`}>{t}</button>
         ))}
       </div>
-      {!isManager(auth.role) ? <p>Managers and admins only.</p> : tab === 'items' ? <ItemsAdmin /> : tab === 'menu' ? <MenuAdmin /> : tab === 'tables' ? <TablesAdmin /> : tab === 'staff' ? <StaffAdmin /> : <SettingsAdmin />}
+      {!auth.can('manager') ? <p>Managers and the owner only.</p> : tab === 'people' ? <PeopleAdmin /> : tab === 'devices' ? <DevicesAdmin />
+        : tab === 'items' ? <ItemsAdmin /> : tab === 'menu' ? <MenuAdmin /> : tab === 'tables' ? <TablesAdmin /> : <SettingsAdmin />}
     </div>
   )
 }
@@ -311,31 +312,6 @@ function TablesAdmin() {
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">{(boot.data?.tables ?? []).map((t: any) => (
         <div key={t.id} className="rounded-xl bg-charcoal-800 p-2 text-center"><div className="font-bold">{t.label}</div><div className="text-xs text-silver">{t.seats} seats · {t.zone ?? ''}</div>
           <button className="text-xs text-red-300 underline" onClick={() => mutate('upsert_dining_table', { p_token: auth.token, p_branch: auth.branchId, p_row: { ...t, is_active: false } }).then(() => boot.refetch())}>remove</button></div>))}</div>
-    </Card>
-  )
-}
-
-function StaffAdmin() {
-  const auth = useAuth()
-  const toast = useToast()
-  const deviceId = auth.who.mode === 'device' ? auth.who.device.id : null
-  const staff = useRpc<any[]>('list_device_staff', { p_device_id: deviceId }, { enabled: !!deviceId })
-  const [pinFor, setPinFor] = useState<any>(null)
-  const [pin, setPin] = useState('')
-  return (
-    <Card>
-      <h3 className="font-bold mb-2">Staff PINs</h3>
-      {!deviceId && <p className="text-sm text-silver">Open this on a shared device to manage the PINs of staff on this branch.</p>}
-      {(staff.data ?? []).map((s) => (
-        <div key={s.id} className="flex items-center justify-between py-2 border-b border-charcoal-800"><span>{s.full_name} <span className="text-silver capitalize">· {s.role}</span></span>
-          <Button onClick={() => { setPinFor(s); setPin('') }}>Reset PIN</Button></div>
-      ))}
-      <p className="text-sm text-silver mt-4">Languages available: {LANGUAGES.map((l) => l.label).join(', ')}. Devices can be revoked from here once registered (§11.1).</p>
-      {pinFor && <Modal open onClose={() => setPinFor(null)} title={`New PIN for ${pinFor.full_name}`}>
-        <Field label="4–6 digits"><input className={inputCls} inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} /></Field>
-        <Button variant="gold" className="w-full" disabled={pin.length < 4} onClick={() => mutate('set_pin', { p_token: auth.token, p_branch: auth.branchId, p_user_id: pinFor.id, p_pin: pin })
-          .then(() => { toast('PIN updated', 'ok'); setPinFor(null) }).catch((e) => toast(e.message, 'error'))}>Save PIN</Button>
-      </Modal>}
     </Card>
   )
 }

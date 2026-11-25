@@ -2,7 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './lib/auth'
 import { Logo } from './components/ui'
 import { Gate, Layout, navFor } from './components/Layout'
-import { Login, PinScreen } from './pages/Login'
+import { Login, NotConfigured, PinScreen, SetPassword } from './pages/Login'
+import { isConfigured } from './lib/backend'
 import { Floor } from './pages/Floor'
 import { SessionPage } from './pages/Session'
 import { InvoicePage, ShiftPage } from './pages/Billing'
@@ -13,17 +14,19 @@ import { AdminPage, AlertsPage, Dashboard, NotFound, Reports, SyncPage } from '.
 import { ShiftsPage, TimeClock } from './pages/Team'
 
 function Home() {
-  const { role } = useAuth()
-  return <Navigate to={navFor(role)[0]?.to ?? '/stock'} replace />
+  const { roles } = useAuth()
+  return <Navigate to={navFor(roles)[0]?.to ?? '/time'} replace />
 }
 
 export default function App() {
   const auth = useAuth()
+  if (!isConfigured()) return <NotConfigured />
   if (!auth.ready) return <div className="grid place-items-center h-full"><Logo className="h-16 opacity-80 animate-pulse" /></div>
   return (
     <Routes>
       <Route path="/book" element={<BookPage />} />
-      {auth.who.mode === 'none' ? <Route path="*" element={<Login />} />
+      {auth.needsPassword && auth.who.mode === 'personal' ? <Route path="*" element={<SetPassword />} />
+        : auth.who.mode === 'none' ? <Route path="*" element={<Login />} />
         : auth.who.mode === 'device' && !auth.staff ? <Route path="*" element={<PinScreen />} />
         : (
           <Route element={<Layout />}>

@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../lib/auth'
-import { backendKind } from '../lib/backend'
-import { DEMO_ACCOUNTS } from '../lib/localBackend'
+import { getBackend } from '../lib/backend'
 import { useRpc } from '../lib/hooks'
 import { Avatar, Button, ErrorBox, Field, Logo, inputCls } from '../components/ui'
 
@@ -23,37 +22,71 @@ export function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState<unknown>(null)
-  const showAll = new URLSearchParams(location.search).get('staff') === 'all'
-  const accounts = DEMO_ACCOUNTS.filter((a) => showAll || !('hidden' in a && a.hidden))
-  const card = (a: (typeof DEMO_ACCOUNTS)[number]) => (
-    <button key={a.authUid} onClick={() => auth.signIn({ authUid: a.authUid }).catch(setErr)}
-      className="group text-left rounded-2xl border border-charcoal-700 bg-charcoal-900 hover:border-gold-500 hover:bg-charcoal-800 p-4 transition flex items-center gap-3">
-      <span className="size-11 rounded-xl bg-gold-700/40 text-gold-200 grid place-items-center text-lg">{a.icon}</span>
-      <span><span className="block font-semibold">{a.label}</span><span className="block text-xs text-silver">{a.hint}</span></span>
-    </button>
-  )
+  const [busy, setBusy] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
+  const submit = async () => {
+    setBusy(true); setErr(null)
+    try { await auth.signIn(email, password) } catch (e) { setErr(e) } finally { setBusy(false) }
+  }
+  const forgot = async () => {
+    setErr(null)
+    if (!email.includes('@')) { setErr(new Error('Type your email first, then tap “Forgot password?”.')); return }
+    try { await (await getBackend()).sendPasswordReset(email.trim()); setResetSent(true) } catch (e) { setErr(e) }
+  }
   return (
     <Shell>
-      {backendKind() === 'local' ? (
-        <div className="rounded-3xl bg-charcoal-900/70 border border-charcoal-700 p-6">
-          <h2 className="font-display text-xl font-bold mb-1">Sign in</h2>
-          <p className="text-sm text-silver mb-5">Shared devices sign in once. Staff then tap their name and enter their PIN.</p>
-          <div className="label mb-2">Restaurant devices</div>
-          <div className="grid sm:grid-cols-2 gap-2 mb-5">{accounts.filter((a) => a.kind === 'device').map(card)}</div>
-          <div className="label mb-2">Personal login</div>
-          <div className="grid sm:grid-cols-2 gap-2">{accounts.filter((a) => a.kind === 'personal').map(card)}</div>
-          <ErrorBox error={err} />
-        </div>
-      ) : (
-        <form className="rounded-3xl bg-charcoal-900/70 border border-charcoal-700 p-6" onSubmit={(e) => { e.preventDefault(); auth.signIn({ email, password }).catch(setErr) }}>
-          <h2 className="font-display text-xl font-bold mb-5">Sign in</h2>
-          <Field label="Email"><input className={inputCls} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
-          <Field label="Password"><input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
-          <ErrorBox error={err} />
-          <Button variant="gold" big className="w-full" type="submit">Sign in</Button>
-        </form>
-      )}
-      <p className="text-center mt-6 text-sm"><Link className="text-gold-300 hover:underline" to="/book">Customer booking page →</Link></p>
+      <form className="rounded-3xl bg-charcoal-900/70 border border-charcoal-700 p-6" onSubmit={(e) => { e.preventDefault(); submit() }}>
+        <h2 className="font-display text-xl font-bold mb-1">Sign in</h2>
+        <p className="text-sm text-silver mb-5">Owners and managers sign in with their email. Staff use their PIN on a restaurant device.</p>
+        <Field label="Email"><input className={inputCls} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        <Field label="Password"><input className={inputCls} type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+        <ErrorBox error={err} />
+        {resetSent && <p className="text-ok text-sm mb-3">Check your email for a link to set a new password.</p>}
+        <Button variant="gold" big className="w-full" type="submit" disabled={busy || !email || !password}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+        <button type="button" className="mt-4 text-sm text-silver hover:text-gold-300" onClick={forgot}>Forgot password?</button>
+      </form>
+      <p className="text-center mt-6 text-sm text-silver">New restaurant phone or tablet? A manager signs in here once, then opens <b>Setup → Devices</b> to make it a shared device.</p>
+      <p className="text-center mt-3 text-sm"><Link className="text-gold-300 hover:underline" to="/book">Customer booking page →</Link></p>
+    </Shell>
+  )
+}
+
+// Opened from an invite or password-reset email: the person chooses their own password.
+export function SetPassword() {
+  const auth = useAuth()
+  const [pw, setPw] = useState('')
+  const [pw2, setPw2] = useState('')
+  const [err, setErr] = useState<unknown>(null)
+  const [busy, setBusy] = useState(false)
+  const name = auth.who.mode === 'personal' ? auth.who.user.full_name : ''
+  const save = async () => {
+    setErr(null)
+    if (pw.length < 8) { setErr(new Error('Use at least 8 characters.')); return }
+    if (pw !== pw2) { setErr(new Error('The two passwords do not match.')); return }
+    setBusy(true)
+    try { await (await getBackend()).setPassword(pw); auth.passwordDone() } catch (e) { setErr(e) } finally { setBusy(false) }
+  }
+  return (
+    <Shell>
+      <form className="rounded-3xl bg-charcoal-900/70 border border-charcoal-700 p-6" onSubmit={(e) => { e.preventDefault(); save() }}>
+        <h2 className="font-display text-xl font-bold mb-1">Choose your password</h2>
+        <p className="text-sm text-silver mb-5">{name ? `Welcome, ${name}. ` : ''}You will use this password with your email to sign in.</p>
+        <Field label="New password"><input className={inputCls} type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
+        <Field label="Type it again"><input className={inputCls} type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Field>
+        <ErrorBox error={err} />
+        <Button variant="gold" big className="w-full" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</Button>
+      </form>
+    </Shell>
+  )
+}
+
+export function NotConfigured() {
+  return (
+    <Shell>
+      <div className="rounded-3xl bg-charcoal-900/70 border border-charcoal-700 p-6">
+        <h2 className="font-display text-xl font-bold mb-2">Database not connected</h2>
+        <p className="text-sm text-silver">Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> (see <code>.env.example</code>), then restart.</p>
+      </div>
     </Shell>
   )
 }
@@ -92,7 +125,7 @@ export function PinScreen() {
                   className="rounded-2xl bg-charcoal-900 border border-charcoal-700 hover:border-gold-500 p-3 min-h-16 text-left flex items-center gap-3 transition">
                   <Avatar name={s.full_name} />
                   <span className="min-w-0"><span className="block font-semibold truncate">{s.full_name}</span>
-                    <span className="block text-xs text-silver capitalize">{s.role}{cached.has(s.id) ? ' · signed in today' : ''}</span></span>
+                    <span className="block text-xs text-silver capitalize">{(s.roles ?? [s.role]).join(' + ')}{cached.has(s.id) ? ' · signed in today' : ''}</span></span>
                 </button>
               ))}
             </div>
